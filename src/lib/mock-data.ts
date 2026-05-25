@@ -1,0 +1,138 @@
+// Mock data realista para VA Consultoria
+
+export const services = [
+  { id: "s1", name: "Limpa Nome", price: 1200, commission: 15, category: "Crédito", status: "ativo", sold: 87 },
+  { id: "s2", name: "Aumento de Score", price: 890, commission: 12, category: "Score", status: "ativo", sold: 124 },
+  { id: "s3", name: "Consultoria Bancária", price: 2500, commission: 18, category: "Consultoria", status: "ativo", sold: 42 },
+  { id: "s4", name: "Consultoria de Crédito", price: 1800, commission: 15, category: "Crédito", status: "ativo", sold: 65 },
+  { id: "s5", name: "Reabilitação Financeira", price: 3200, commission: 20, category: "Reabilitação", status: "ativo", sold: 28 },
+];
+
+export const sellers = [
+  { id: "v1", name: "Ana Beatriz", avatar: "AB", sales: 184, revenue: 218400 },
+  { id: "v2", name: "Carlos Mendes", avatar: "CM", sales: 142, revenue: 176800 },
+  { id: "v3", name: "Juliana Rocha", avatar: "JR", sales: 98, revenue: 124500 },
+  { id: "v4", name: "Rafael Souza", avatar: "RS", sales: 76, revenue: 98200 },
+];
+
+export const clients = [
+  { id: "c1", name: "Marcelo Almeida", doc: "123.456.789-00", phone: "(11) 98877-6655", email: "marcelo@email.com", service: "Limpa Nome", entryDate: "2025-01-15", origin: "Instagram", status: "ativo", total: 3600 },
+  { id: "c2", name: "Patrícia Lima", doc: "987.654.321-00", phone: "(21) 99988-7766", email: "patricia@email.com", service: "Aumento de Score", entryDate: "2025-02-08", origin: "Indicação", status: "ativo", total: 1780 },
+  { id: "c3", name: "Roberto Carlos Inc", doc: "12.345.678/0001-90", phone: "(11) 3344-5566", email: "contato@rcinc.com", service: "Consultoria Bancária", entryDate: "2024-11-22", origin: "Google Ads", status: "ativo", total: 7500 },
+  { id: "c4", name: "Fernanda Souza", doc: "456.789.123-00", phone: "(31) 98765-4321", email: "fernanda@email.com", service: "Reabilitação Financeira", entryDate: "2025-03-01", origin: "Facebook", status: "inadimplente", total: 3200 },
+  { id: "c5", name: "Lucas Pereira", doc: "321.654.987-00", phone: "(41) 99876-5432", email: "lucas@email.com", service: "Consultoria de Crédito", entryDate: "2025-04-12", origin: "Instagram", status: "ativo", total: 1800 },
+  { id: "c6", name: "Mariana Costa", doc: "654.321.987-00", phone: "(51) 98123-4567", email: "mariana@email.com", service: "Limpa Nome", entryDate: "2025-04-20", origin: "Indicação", status: "ativo", total: 1200 },
+  { id: "c7", name: "TechBrasil LTDA", doc: "98.765.432/0001-10", phone: "(11) 4002-8922", email: "fin@techbrasil.com", service: "Consultoria Bancária", entryDate: "2025-02-14", origin: "LinkedIn", status: "ativo", total: 5000 },
+  { id: "c8", name: "Daniela Martins", doc: "789.123.456-00", phone: "(85) 99234-5678", email: "dani@email.com", service: "Aumento de Score", entryDate: "2025-05-05", origin: "TikTok", status: "inadimplente", total: 890 },
+];
+
+export const sales = [
+  { id: "vd1", date: "2026-05-24", client: "Marcelo Almeida", service: "Limpa Nome", value: 1200, seller: "Ana Beatriz", origin: "Instagram", status: "pago" },
+  { id: "vd2", date: "2026-05-24", client: "Patrícia Lima", service: "Aumento de Score", value: 890, seller: "Carlos Mendes", origin: "Indicação", status: "pago" },
+  { id: "vd3", date: "2026-05-23", client: "Roberto Carlos Inc", service: "Consultoria Bancária", value: 2500, seller: "Ana Beatriz", origin: "Google Ads", status: "parcial" },
+  { id: "vd4", date: "2026-05-23", client: "Lucas Pereira", service: "Consultoria de Crédito", value: 1800, seller: "Juliana Rocha", origin: "Instagram", status: "pago" },
+  { id: "vd5", date: "2026-05-22", client: "Mariana Costa", service: "Limpa Nome", value: 1200, seller: "Rafael Souza", origin: "Indicação", status: "pendente" },
+  { id: "vd6", date: "2026-05-22", client: "Daniela Martins", service: "Aumento de Score", value: 890, seller: "Carlos Mendes", origin: "TikTok", status: "atrasado" },
+  { id: "vd7", date: "2026-05-21", client: "TechBrasil LTDA", service: "Consultoria Bancária", value: 2500, seller: "Ana Beatriz", origin: "LinkedIn", status: "pago" },
+  { id: "vd8", date: "2026-05-20", client: "Fernanda Souza", service: "Reabilitação Financeira", value: 3200, seller: "Juliana Rocha", origin: "Facebook", status: "atrasado" },
+  { id: "vd9", date: "2026-05-19", client: "Marcelo Almeida", service: "Aumento de Score", value: 890, seller: "Ana Beatriz", origin: "Instagram", status: "pago" },
+  { id: "vd10", date: "2026-05-18", client: "Patrícia Lima", service: "Consultoria de Crédito", value: 1800, seller: "Carlos Mendes", origin: "Indicação", status: "pago" },
+];
+
+export const expenseCategories = [
+  "Marketing", "Ferramentas", "Internet", "Salários", "Comissões",
+  "Operacional", "Impostos", "Equipamentos", "Alimentação", "Transporte",
+  "Lazer", "Assinaturas", "Moradia", "Saúde", "Outros",
+];
+
+export const expenses = [
+  { id: "e1", date: "2026-05-20", desc: "Google Ads", category: "Marketing", value: 8500, status: "pago", recurring: true },
+  { id: "e2", date: "2026-05-15", desc: "Salários equipe", category: "Salários", value: 42000, status: "pago", recurring: true },
+  { id: "e3", date: "2026-05-10", desc: "Aluguel escritório", category: "Moradia", value: 6800, status: "pago", recurring: true },
+  { id: "e4", date: "2026-05-25", desc: "Notion / Slack / ClickUp", category: "Assinaturas", value: 980, status: "pendente", recurring: true },
+  { id: "e5", date: "2026-05-28", desc: "Comissões vendedores", category: "Comissões", value: 18400, status: "pendente", recurring: true },
+  { id: "e6", date: "2026-05-30", desc: "Impostos DAS", category: "Impostos", value: 12300, status: "pendente", recurring: true },
+  { id: "e7", date: "2026-05-12", desc: "Meta Ads", category: "Marketing", value: 5200, status: "pago", recurring: true },
+  { id: "e8", date: "2026-05-08", desc: "Internet corporativa", category: "Internet", value: 450, status: "pago", recurring: true },
+  { id: "e9", date: "2026-05-18", desc: "Novos notebooks (3x)", category: "Equipamentos", value: 14700, status: "pago", recurring: false },
+  { id: "e10", date: "2026-06-02", desc: "Conta de luz", category: "Operacional", value: 890, status: "pendente", recurring: true },
+];
+
+export const monthlyRevenue = [
+  { month: "Nov", receita: 142000, despesa: 88000, lucro: 54000 },
+  { month: "Dez", receita: 168000, despesa: 92000, lucro: 76000 },
+  { month: "Jan", receita: 155000, despesa: 95000, lucro: 60000 },
+  { month: "Fev", receita: 189000, despesa: 102000, lucro: 87000 },
+  { month: "Mar", receita: 212000, despesa: 110000, lucro: 102000 },
+  { month: "Abr", receita: 198000, despesa: 108000, lucro: 90000 },
+  { month: "Mai", receita: 234000, despesa: 115000, lucro: 119000 },
+];
+
+export const dailySales = [
+  { day: "Seg", vendas: 12, valor: 18400 },
+  { day: "Ter", vendas: 18, valor: 24800 },
+  { day: "Qua", vendas: 15, valor: 21200 },
+  { day: "Qui", vendas: 22, valor: 31600 },
+  { day: "Sex", vendas: 28, valor: 38900 },
+  { day: "Sáb", vendas: 9, valor: 12400 },
+  { day: "Dom", vendas: 4, valor: 5600 },
+];
+
+export const expensesByCategory = [
+  { name: "Salários", value: 42000 },
+  { name: "Marketing", value: 13700 },
+  { name: "Comissões", value: 18400 },
+  { name: "Impostos", value: 12300 },
+  { name: "Equipamentos", value: 14700 },
+  { name: "Outros", value: 13900 },
+];
+
+export const cashFlowDaily = Array.from({ length: 30 }, (_, i) => {
+  const day = i + 1;
+  const base = 80000;
+  const trend = i * 1800;
+  const noise = Math.sin(i / 3) * 12000;
+  return {
+    day: `${String(day).padStart(2, "0")}/05`,
+    saldo: Math.round(base + trend + noise),
+    projecao: Math.round(base + trend + noise + 8000 + i * 200),
+  };
+});
+
+export const goals = [
+  { id: "g1", name: "Faturamento mensal", target: 280000, current: 234000, type: "currency", deadline: "31/05" },
+  { id: "g2", name: "Novos clientes", target: 80, current: 62, type: "number", deadline: "31/05" },
+  { id: "g3", name: "Ticket médio", target: 1800, current: 1645, type: "currency", deadline: "31/05" },
+  { id: "g4", name: "Redução de custos", target: 15, current: 8, type: "percent", deadline: "30/06" },
+  { id: "g5", name: "Lucro líquido", target: 140000, current: 119000, type: "currency", deadline: "31/05" },
+];
+
+export const alerts = [
+  { id: "a1", type: "danger", title: "Conta vencida", desc: "Comissões vendedores - R$ 18.400 venceu há 2 dias", time: "há 2 dias" },
+  { id: "a2", type: "warning", title: "Meta em risco", desc: "Faturamento mensal: 16% restantes em 7 dias", time: "hoje" },
+  { id: "a3", type: "warning", title: "Despesa acima da média", desc: "Marketing aumentou 25% vs mês anterior", time: "ontem" },
+  { id: "a4", type: "info", title: "Cliente inadimplente", desc: "Fernanda Souza - 12 dias em atraso", time: "há 3 dias" },
+  { id: "a5", type: "success", title: "Meta de vendas batida", desc: "Ana Beatriz superou meta semanal em 18%", time: "hoje" },
+  { id: "a6", type: "danger", title: "Fluxo de caixa em risco", desc: "Projeção indica saldo negativo em 18 dias", time: "agora" },
+];
+
+export const insights = [
+  { icon: "trending-up", text: "Seu faturamento está 18% acima do mês anterior. Continue investindo em Instagram." },
+  { icon: "alert-triangle", text: "Sua despesa com Marketing aumentou 25% — avalie o ROI das campanhas ativas." },
+  { icon: "target", text: "Se continuar nesse ritmo, você baterá a meta de faturamento em 6 dias." },
+  { icon: "star", text: "Consultoria Bancária é seu serviço mais lucrativo neste mês (margem 72%)." },
+  { icon: "users", text: "Origem 'Indicação' tem a maior taxa de conversão (38%) — crie programa de referência." },
+  { icon: "wallet", text: "Seu maior custo atual está em Salários (37% das despesas) — saudável para o setor." },
+  { icon: "trending-down", text: "Vendas de sábado caíram 22% nas últimas 4 semanas." },
+];
+
+export const users = [
+  { id: "u1", name: "Vinícius Andrade", email: "vinicius@vaconsultoria.com", role: "Administrador", status: "ativo", lastAccess: "agora" },
+  { id: "u2", name: "Ana Beatriz", email: "ana@vaconsultoria.com", role: "Comercial", status: "ativo", lastAccess: "há 12min" },
+  { id: "u3", name: "Carlos Mendes", email: "carlos@vaconsultoria.com", role: "Comercial", status: "ativo", lastAccess: "há 1h" },
+  { id: "u4", name: "Patrícia Financeira", email: "patricia@vaconsultoria.com", role: "Financeiro", status: "ativo", lastAccess: "há 3h" },
+  { id: "u5", name: "Estagiário João", email: "joao@vaconsultoria.com", role: "Somente leitura", status: "inativo", lastAccess: "há 5 dias" },
+];
+
+export const formatBRL = (v: number) =>
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
