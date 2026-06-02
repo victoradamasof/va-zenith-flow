@@ -1,53 +1,271 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from "recharts";
-import { Wallet, ArrowUpCircle, ArrowDownCircle, TrendingUp } from "lucide-react";
-import { cashFlowDaily, formatBRL } from "@/lib/mock-data";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { ArrowDownCircle, ArrowUpCircle, Download, TrendingUp, Wallet } from "lucide-react";
+import { expenses as initialExpenses, formatBRL, sales as initialSales } from "@/lib/mock-data";
+import { usePersistentState } from "@/hooks/use-persistent-state";
+import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
+import { filterSaleReceivables } from "@/lib/data-sync";
+import { calculateCurrentCash, cashBalanceKey, defaultCashBalance } from "@/lib/cash-data";
+import { getToday, toISODate } from "@/lib/smart-calendar";
 
 export const Route = createFileRoute("/_app/cashflow")({
   component: CashFlow,
-  head: () => ({ meta: [{ title: "Fluxo de Caixa — VA Consultoria" }] }),
+  head: () => ({ meta: [{ title: "Fluxo de Caixa - VA Consultoria" }] }),
 });
 
+const periods = { hoje: 1, semana: 7, mes: 30, tri: 90, ano: 365 };
+
+function parseLocalDate(date: string) {
+  return new Date(`${date}T12:00:00`);
+}
+
+function isPaid(status: string) {
+  return status === "pago";
+}
+
 function CashFlow() {
+  const [period, setPeriod] = useState<keyof typeof periods>("mes");
+  const [sales] = usePersistentState("va-manager:sales", initialSales);
+  const [expenses] = usePersistentState("va-manager:expenses", initialExpenses);
+  const [receivables] = useSyncedReceivables({ sales });
+  const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
+
+  const days = periods[period];
+  const today = useMemo(() => getToday(), []);
+  const start = useMemo(() => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - days + 1);
+    return date;
+  }, [days, today]);
+
+  const filteredSales = sales.filter((sale) => parseLocalDate(sale.date) >= start);
+  const filteredExpenses = expenses.filter((expense) => parseLocalDate(expense.date) >= start);
+  const filteredReceivables = receivables.filter(
+    (receivable) => parseLocalDate(receivable.dueDate) >= start,
+  );
+  const saleReceivables = useMemo(
+    () => filterSaleReceivables(receivables, sales),
+    [receivables, sales],
+  );
+  const saleIdsWithReceivables = useMemo(
+    () => new Set(saleReceivables.map((receivable) => receivable.sourceId)),
+    [saleReceivables],
+  );
+
+  const paidSalesInPeriod = filteredSales.filter(
+    (sale) => isPaid(sale.status) && !saleIdsWithReceivables.has(sale.id),
+  );
+  const receivedInPeriod = filteredReceivables.filter(
+    (receivable) => receivable.status === "recebido",
+  );
+  const paidExpensesInPeriod = filteredExpenses.filter((expense) => isPaid(expense.status));
+  const pendingSalesInPeriod = filteredSales.filter(
+    (sale) => !isPaid(sale.status) && !saleIdsWithReceivables.has(sale.id),
+  );
+  const pendingReceivablesInPeriod = filteredReceivables.filter(
+    (receivable) => receivable.status === "previsto",
+  );
+  const pendingExpensesInPeriod = filteredExpenses.filter((expense) => !isPaid(expense.status));
+
+  const entradas =
+    paidSalesInPeriod.reduce((sum, sale) => sum + sale.value, 0) +
+    receivedInPeriod.reduce((sum, receivable) => sum + receivable.amount, 0);
+  const saidas = paidExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0);
+  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables);
+  const saldoInicial = currentCash - entradas + saidas;
+  const saldoFinal = saldoInicial + entradas - saidas;
+
+  const entradasPrevistas =
+    pendingSalesInPeriod.reduce((sum, sale) => sum + sale.value, 0) +
+    pendingReceivablesInPeriod.reduce((sum, receivable) => sum + receivable.amount, 0);
+  const saidasPrevistas = pendingExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0);
+  const saldoProjetado = saldoFinal + entradasPrevistas - saidasPrevistas;
+  const safeMinimum = Math.max(3000, Math.round(Math.max(currentCash, 1) * 0.2));
+
+  const biggestEntry = Math.max(
+    0,
+    ...paidSalesInPeriod.map((sale) => sale.value),
+    ...receivedInPeriod.map((receivable) => receivable.amount),
+  );
+  const biggestOutflow = Math.max(0, ...paidExpensesInPeriod.map((expense) => expense.value));
+
+  const chartData = useMemo(() => {
+    return Array.from({ length: Math.min(days, 30) }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const key = toISODate(date);
+      const realizedSales = sales
+        .filter(
+          (sale) =>
+            isPaid(sale.status) &&
+            !saleIdsWithReceivables.has(sale.id) &&
+            sale.date <= key &&
+            parseLocalDate(sale.date) >= start,
+        )
+        .reduce((sum, sale) => sum + sale.value, 0);
+      const realizedReceivables = receivables
+        .filter(
+          (receivable) =>
+            receivable.status === "recebido" &&
+            receivable.dueDate <= key &&
+            parseLocalDate(receivable.dueDate) >= start,
+        )
+        .reduce((sum, receivable) => sum + receivable.amount, 0);
+      const realizedExpenses = expenses
+        .filter(
+          (expense) =>
+            isPaid(expense.status) && expense.date <= key && parseLocalDate(expense.date) >= start,
+        )
+        .reduce((sum, expense) => sum + expense.value, 0);
+      const saldo = saldoInicial + realizedSales + realizedReceivables - realizedExpenses;
+
+      const projectedSales = sales
+        .filter(
+          (sale) =>
+            !isPaid(sale.status) &&
+            !saleIdsWithReceivables.has(sale.id) &&
+            sale.date <= key &&
+            parseLocalDate(sale.date) >= start,
+        )
+        .reduce((sum, sale) => sum + sale.value, 0);
+      const projectedReceivables = receivables
+        .filter(
+          (receivable) =>
+            receivable.status === "previsto" &&
+            receivable.dueDate <= key &&
+            parseLocalDate(receivable.dueDate) >= start,
+        )
+        .reduce((sum, receivable) => sum + receivable.amount, 0);
+      const projectedExpenses = expenses
+        .filter(
+          (expense) =>
+            !isPaid(expense.status) && expense.date <= key && parseLocalDate(expense.date) >= start,
+        )
+        .reduce((sum, expense) => sum + expense.value, 0);
+      return {
+        day: date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+        saldo,
+        entradas:
+          sales
+            .filter(
+              (sale) =>
+                isPaid(sale.status) && !saleIdsWithReceivables.has(sale.id) && sale.date === key,
+            )
+            .reduce((sum, sale) => sum + sale.value, 0) +
+          receivables
+            .filter((receivable) => receivable.status === "recebido" && receivable.dueDate === key)
+            .reduce((sum, receivable) => sum + receivable.amount, 0),
+        saidas: expenses
+          .filter((expense) => isPaid(expense.status) && expense.date === key)
+          .reduce((sum, expense) => sum + expense.value, 0),
+        projecao: saldo + projectedSales + projectedReceivables - projectedExpenses,
+      };
+    });
+  }, [days, expenses, receivables, saleIdsWithReceivables, sales, saldoInicial, start]);
+
+  const exportCsv = () => {
+    const rows = [
+      ["Dia", "Saldo realizado", "Entradas realizadas", "Saidas realizadas", "Projecao"],
+      ...chartData.map((item) => [
+        item.day,
+        String(item.saldo),
+        String(item.entradas),
+        String(item.saidas),
+        String(item.projecao),
+      ]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "fluxo-caixa-va.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Fluxo de Caixa"
-        subtitle="Entradas, saídas e projeção de saldo"
+        subtitle="Entradas, saidas e projecao conectadas a financeiro, CRM e vendas"
         action={
-          <Tabs defaultValue="mes">
-            <TabsList>
-              <TabsTrigger value="hoje">Hoje</TabsTrigger>
-              <TabsTrigger value="semana">Semana</TabsTrigger>
-              <TabsTrigger value="mes">Mês</TabsTrigger>
-              <TabsTrigger value="tri">Trimestre</TabsTrigger>
-              <TabsTrigger value="ano">Ano</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <>
+            <Tabs
+              value={period}
+              onValueChange={(value) => setPeriod(value as keyof typeof periods)}
+            >
+              <TabsList>
+                <TabsTrigger value="hoje">Hoje</TabsTrigger>
+                <TabsTrigger value="semana">Semana</TabsTrigger>
+                <TabsTrigger value="mes">Mes</TabsTrigger>
+                <TabsTrigger value="tri">Trimestre</TabsTrigger>
+                <TabsTrigger value="ano">Ano</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button variant="outline" size="sm" onClick={exportCsv}>
+              <Download className="mr-2 h-4 w-4" />
+              CSV
+            </Button>
+          </>
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Saldo inicial" value={formatBRL(80000)} icon={Wallet} accent="info" />
-        <KpiCard label="Entradas do período" value={formatBRL(234000)} delta={18} icon={ArrowUpCircle} accent="success" />
-        <KpiCard label="Saídas do período" value={formatBRL(115000)} delta={6} icon={ArrowDownCircle} accent="warning" />
-        <KpiCard label="Saldo final" value={formatBRL(199000)} delta={26} icon={TrendingUp} accent="primary" />
+        <KpiCard
+          label="Saldo inicial"
+          value={formatBRL(saldoInicial)}
+          icon={Wallet}
+          accent="info"
+          hint="aporte de investimentos + saldo anterior"
+        />
+        <KpiCard
+          label="Entradas realizadas"
+          value={formatBRL(entradas)}
+          delta={18}
+          icon={ArrowUpCircle}
+          accent="success"
+        />
+        <KpiCard
+          label="Saidas realizadas"
+          value={formatBRL(saidas)}
+          delta={6}
+          icon={ArrowDownCircle}
+          accent="warning"
+        />
+        <KpiCard
+          label="Saldo final"
+          value={formatBRL(saldoFinal)}
+          delta={saldoFinal >= saldoInicial ? 26 : -12}
+          icon={TrendingUp}
+          accent="primary"
+        />
       </div>
 
       <Card className="border-border/60 bg-card/60 p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="font-display text-base font-semibold">Evolução diária do caixa</h3>
-            <p className="text-xs text-muted-foreground">Saldo realizado e projeção</p>
-          </div>
+        <div className="mb-4">
+          <h3 className="font-display text-base font-semibold">Evolucao diaria do caixa</h3>
+          <p className="text-xs text-muted-foreground">
+            Linha laranja: realizado. Linha verde: projecao com recebiveis e pagamentos previstos.
+          </p>
         </div>
         <ResponsiveContainer width="100%" height={340}>
-          <AreaChart data={cashFlowDaily}>
+          <AreaChart data={chartData}>
             <defs>
               <linearGradient id="cf1" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(28 95% 60%)" stopOpacity={0.4} />
@@ -60,32 +278,93 @@ function CashFlow() {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 100% / 0.06)" />
             <XAxis dataKey="day" stroke="hsl(0 0% 65%)" fontSize={11} />
-            <YAxis stroke="hsl(0 0% 65%)" fontSize={11} tickFormatter={(v) => `${(v as number)/1000}k`} />
-            <Tooltip contentStyle={{ background: "hsl(0 0% 12%)", border: "1px solid hsl(0 0% 20%)", borderRadius: 8 }} formatter={(v: number) => formatBRL(v)} />
-            <ReferenceLine y={50000} stroke="hsl(0 80% 60%)" strokeDasharray="4 4" label={{ value: "Mínimo seguro", position: "right", fill: "hsl(0 80% 60%)", fontSize: 11 }} />
-            <Area type="monotone" dataKey="saldo" stroke="hsl(28 95% 60%)" strokeWidth={2.5} fill="url(#cf1)" name="Saldo realizado" />
-            <Area type="monotone" dataKey="projecao" stroke="hsl(152 55% 48%)" strokeWidth={2} strokeDasharray="5 5" fill="url(#cf2)" name="Projeção" />
+            <YAxis
+              stroke="hsl(0 0% 65%)"
+              fontSize={11}
+              tickFormatter={(value) => `${(value as number) / 1000}k`}
+            />
+            <Tooltip
+              contentStyle={{
+                background: "hsl(0 0% 12%)",
+                border: "1px solid hsl(0 0% 20%)",
+                borderRadius: 8,
+              }}
+              formatter={(value: number) => formatBRL(value)}
+            />
+            <ReferenceLine
+              y={safeMinimum}
+              stroke="hsl(0 80% 60%)"
+              strokeDasharray="4 4"
+              label={{
+                value: "Minimo seguro",
+                position: "right",
+                fill: "hsl(0 80% 60%)",
+                fontSize: 11,
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="saldo"
+              stroke="hsl(28 95% 60%)"
+              strokeWidth={2.5}
+              fill="url(#cf1)"
+              name="Saldo realizado"
+            />
+            <Area
+              type="monotone"
+              dataKey="projecao"
+              stroke="hsl(152 55% 48%)"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              fill="url(#cf2)"
+              name="Projecao"
+            />
           </AreaChart>
         </ResponsiveContainer>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
+        <CashCard
+          title="Maior entrada"
+          value={biggestEntry}
+          subtitle={`${paidSalesInPeriod.length + receivedInPeriod.length} entradas recebidas`}
+        />
+        <CashCard
+          title="Maior saida"
+          value={biggestOutflow}
+          subtitle={`${paidExpensesInPeriod.length} despesas + investimentos pagos`}
+        />
+        <CashCard
+          title="Saldo projetado"
+          value={saldoProjetado}
+          subtitle={`${formatBRL(entradasPrevistas)} a receber e ${formatBRL(saidasPrevistas)} a pagar`}
+        />
         <Card className="border-border/60 bg-card/60 p-5">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Maior entrada</p>
-          <p className="mt-1 font-display text-xl font-semibold">{formatBRL(31600)}</p>
-          <p className="text-xs text-muted-foreground">Quinta-feira · 22 vendas</p>
-        </Card>
-        <Card className="border-border/60 bg-card/60 p-5">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Maior saída</p>
-          <p className="mt-1 font-display text-xl font-semibold">{formatBRL(42000)}</p>
-          <p className="text-xs text-muted-foreground">Salários equipe · 15/05</p>
-        </Card>
-        <Card className="border-border/60 bg-card/60 p-5">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Dias com saldo positivo</p>
-          <p className="mt-1 font-display text-xl font-semibold">30 / 30</p>
-          <p className="text-xs text-success">100% do período</p>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">Risco de caixa</p>
+          <p className="mt-1 font-display text-xl font-semibold">
+            {saldoProjetado < safeMinimum ? "Alto" : "Controlado"}
+          </p>
+          <p
+            className={
+              saldoProjetado < safeMinimum ? "text-xs text-destructive" : "text-xs text-success"
+            }
+          >
+            {saldoProjetado < safeMinimum
+              ? "Projecao abaixo do minimo seguro"
+              : "Projecao acima do minimo seguro"}
+          </p>
         </Card>
       </div>
     </div>
+  );
+}
+
+function CashCard({ title, value, subtitle }: { title: string; value: number; subtitle: string }) {
+  return (
+    <Card className="border-border/60 bg-card/60 p-5">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground">{title}</p>
+      <p className="mt-1 font-display text-xl font-semibold">{formatBRL(value)}</p>
+      <p className="text-xs text-muted-foreground">{subtitle}</p>
+    </Card>
   );
 }

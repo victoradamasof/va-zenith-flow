@@ -1,35 +1,363 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { DatePickerField } from "@/components/date-picker-field";
+import { CollaboratorAvatar } from "@/components/collaborator-avatar";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { OptionSelectField } from "@/components/option-select-field";
 import { Card } from "@/components/ui/card";
+import { AnimatedDashboardCard } from "@/components/ui/animated-dashboard-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PremiumActionButton } from "@/components/ui/premium-action-button";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ArrowDownCircle, ArrowUpCircle, Wallet, AlertCircle, Plus, Search, Download, Filter } from "lucide-react";
-import { expenses, expenseCategories, sales, formatBRL } from "@/lib/mock-data";
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Wallet,
+  AlertCircle,
+  Plus,
+  Search,
+  Download,
+  Filter,
+  RotateCcw,
+  Pencil,
+} from "lucide-react";
+import {
+  expenses as initialExpenses,
+  expenseCategories,
+  sales as initialSales,
+  sellers as initialSellers,
+  formatBRL,
+} from "@/lib/mock-data";
+import { buildCollaboratorMap, normalizeCollaboratorName } from "@/lib/collaborators";
+import { usePersistentState } from "@/hooks/use-persistent-state";
+import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
+import { filterSaleReceivables } from "@/lib/data-sync";
+import {
+  calculateCurrentCash,
+  calculatePaidExpenses,
+  calculateReceivedRevenue,
+  cashBalanceKey,
+  defaultCashBalance,
+} from "@/lib/cash-data";
+import type { Receivable } from "@/lib/receivables";
 
 export const Route = createFileRoute("/_app/financial")({
   component: Financial,
-  head: () => ({ meta: [{ title: "Gestão Financeira — VA Consultoria" }] }),
+  head: () => ({ meta: [{ title: "Gestão Financeira - VA Consultoria" }] }),
 });
 
-const statusBadge = (s: string) => {
-  const m: Record<string, string> = {
+const statusBadge = (status: string) => {
+  const map: Record<string, string> = {
     pago: "bg-success/15 text-success",
     pendente: "bg-warning/15 text-warning",
     atrasado: "bg-destructive/15 text-destructive",
     parcial: "bg-info/15 text-info",
+    "pago parcialmente": "bg-info/15 text-info",
+    recebido: "bg-success/15 text-success",
+    previsto: "bg-info/15 text-info",
   };
-  return m[s] ?? "bg-muted text-muted-foreground";
+  return map[status] ?? "bg-muted text-muted-foreground";
 };
 
+const statusLabel = (status: string) => (status === "parcial" ? "pago parcialmente" : status);
+
+type Expense = (typeof initialExpenses)[number];
+type Collaborator = (typeof initialSellers)[number] & { role?: string; photoUrl?: string };
+
+const emptyExpenseForm = {
+  date: new Date().toISOString().slice(0, 10),
+  desc: "",
+  category: "Marketing",
+  value: "",
+  status: "pendente",
+  recurring: "true",
+};
+
+const expenseStatusOptions = ["pendente", "pago", "atrasado", "parcial"];
+const recurringOptions = ["true", "false"];
+const recurringLabels: Record<string, string> = {
+  true: "Recorrente",
+  false: "Avulsa",
+};
+
+function parseCurrencyInput(value: string) {
+  const normalized = value.trim().replace(/[^\d,.]/g, "");
+  if (!normalized) return 0;
+
+  if (normalized.includes(",")) {
+    return Number(normalized.replace(/\./g, "").replace(",", ".")) || 0;
+  }
+
+  return Number(normalized.replace(/\./g, "")) || 0;
+}
+
+function formatCurrencyInput(value: number) {
+  return value.toLocaleString("pt-BR", {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function Financial() {
-  const totalReceitas = sales.reduce((acc, s) => acc + (s.status === "pago" ? s.value : 0), 0);
-  const totalDespesas = expenses.reduce((acc, e) => acc + (e.status === "pago" ? e.value : 0), 0);
-  const aPagar = expenses.filter(e => e.status === "pendente").reduce((acc, e) => acc + e.value, 0);
-  const aReceber = sales.filter(s => s.status !== "pago").reduce((acc, s) => acc + s.value, 0);
+  const [sales, setSales] = usePersistentState("va-manager:sales", initialSales);
+  const [expenses, setExpenses] = usePersistentState("va-manager:expenses", initialExpenses);
+  const [collaborators] = usePersistentState<Collaborator[]>(
+    "va-manager:collaborators",
+    initialSellers,
+  );
+  const [receivables, setReceivables] = useSyncedReceivables({ sales });
+  const [cashBase, setCashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
+  const [categories, setCategories] = usePersistentState(
+    "va-manager:expense-categories",
+    expenseCategories,
+  );
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyExpenseForm);
+  const [cashForm, setCashForm] = useState(formatCurrencyInput(defaultCashBalance));
+
+  const filteredExpenses = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return expenses;
+
+    return expenses.filter((expense) =>
+      [
+        expense.date,
+        expense.desc,
+        expense.category,
+        expense.status,
+        expense.recurring ? "recorrente" : "avulsa",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [expenses, query]);
+
+  const filteredSales = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return sales;
+
+    return sales.filter((sale) =>
+      [sale.date, sale.client, sale.service, sale.status, sale.origin, sale.seller]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [query, sales]);
+
+  const filteredReceivables = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return receivables;
+
+    return receivables.filter((item) =>
+      [item.client, item.service, item.seller, item.origin, item.label, item.status, item.dueDate]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [query, receivables]);
+  const collaboratorsByName = useMemo(() => buildCollaboratorMap(collaborators), [collaborators]);
+
+  const saleReceivables = useMemo(
+    () => filterSaleReceivables(receivables, sales),
+    [receivables, sales],
+  );
+  const saleIdsWithReceivables = useMemo(
+    () => new Set(saleReceivables.map((receivable) => receivable.sourceId)),
+    [saleReceivables],
+  );
+  const totalReceitas = calculateReceivedRevenue(sales, receivables);
+  const totalDespesas = calculatePaidExpenses(expenses);
+  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables);
+  const aPagar = expenses
+    .filter((expense) => expense.status === "pendente" || expense.status === "atrasado")
+    .reduce((sum, expense) => sum + expense.value, 0);
+  const aReceber =
+    receivables
+      .filter((receivable) => receivable.status === "previsto")
+      .reduce((sum, receivable) => sum + receivable.amount, 0) +
+    sales
+      .filter((sale) => sale.status !== "pago" && !saleIdsWithReceivables.has(sale.id))
+      .reduce((sum, sale) => sum + sale.value, 0);
+  const projectedCash = currentCash + aReceber - aPagar;
+
+  useEffect(() => {
+    setCashForm(formatCurrencyInput(currentCash));
+  }, [currentCash]);
+
+  const updateForm = (field: keyof typeof form, value: string) => {
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const openCreateExpense = () => {
+    setEditingExpenseId(null);
+    setForm(emptyExpenseForm);
+    setOpen(true);
+  };
+
+  const openEditExpense = (expense: Expense) => {
+    setEditingExpenseId(expense.id);
+    setForm({
+      date: expense.date,
+      desc: expense.desc,
+      category: expense.category,
+      value: formatCurrencyInput(expense.value),
+      status: expense.status,
+      recurring: String(expense.recurring),
+    });
+    setOpen(true);
+  };
+
+  const closeDialog = () => {
+    setOpen(false);
+    setEditingExpenseId(null);
+    setForm(emptyExpenseForm);
+  };
+
+  const submitExpense = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const desc = form.desc.trim();
+    if (!desc) return;
+    const expense: Expense = {
+      id: editingExpenseId ?? `e-${Date.now()}`,
+      date: form.date,
+      desc,
+      category: form.category.trim() || "Outros",
+      value: parseCurrencyInput(form.value),
+      status: form.status,
+      recurring: form.recurring === "true",
+    };
+
+    setExpenses((current) =>
+      editingExpenseId
+        ? current.map((item) => (item.id === editingExpenseId ? expense : item))
+        : [expense, ...current],
+    );
+
+    closeDialog();
+    toast.success(editingExpenseId ? "Despesa atualizada." : "Despesa cadastrada.");
+  };
+
+  const updateExpenseStatus = (id: string, status: string) => {
+    setExpenses((current) =>
+      current.map((expense) => (expense.id === id ? { ...expense, status } : expense)),
+    );
+    toast.success(`Despesa marcada como ${status}.`);
+  };
+
+  const removeExpense = (id: string) => {
+    setExpenses((current) => current.filter((expense) => expense.id !== id));
+    toast.success("Despesa excluída.");
+  };
+
+  const saveCashBalance = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextCurrentCash = parseCurrencyInput(cashForm);
+    if (nextCurrentCash < 0) {
+      toast.error("Informe um caixa igual ou maior que zero.");
+      return;
+    }
+
+    setCashBase(nextCurrentCash - totalReceitas + totalDespesas);
+    setCashForm(formatCurrencyInput(nextCurrentCash));
+    toast.success("Caixa atualizado.");
+  };
+
+  const updateReceivableStatus = (id: string, status: Receivable["status"]) => {
+    const target = receivables.find((receivable) => receivable.id === id);
+    if (!target) return;
+    const nextReceivables = receivables.map((receivable) =>
+      receivable.id === id ? { ...receivable, status } : receivable,
+    );
+    setReceivables(nextReceivables);
+
+    const related = nextReceivables.filter((receivable) => receivable.sourceId === target.sourceId);
+    if (related.length) {
+      const nextSaleStatus = related.every((receivable) => receivable.status === "recebido")
+        ? "pago"
+        : related.some((receivable) => receivable.status === "recebido")
+          ? "pago parcialmente"
+          : "pendente";
+      setSales((current) =>
+        current.map((sale) =>
+          sale.id === target.sourceId ? { ...sale, status: nextSaleStatus } : sale,
+        ),
+      );
+    }
+
+    toast.success(status === "recebido" ? "Receita marcada como recebida." : "Receita prevista.");
+  };
+
+  const addCategory = () => {
+    const category = window.prompt("Nome da nova categoria financeira");
+    if (!category?.trim()) return;
+    setCategories((current) => [...new Set([...current, category.trim()])]);
+    toast.success("Categoria criada.");
+  };
+
+  const exportCsv = () => {
+    const rows = [
+      ["Tipo", "Data", "Descrição", "Categoria/Serviço", "Valor", "Status"],
+      [
+        "Caixa",
+        new Date().toISOString().slice(0, 10),
+        "Caixa atual",
+        "Operacional",
+        String(currentCash),
+        "atual",
+      ],
+      ...expenses.map((expense) => [
+        "Despesa",
+        expense.date,
+        expense.desc,
+        expense.category,
+        String(expense.value),
+        expense.status,
+      ]),
+      ...sales.map((sale) => [
+        "Receita",
+        sale.date,
+        sale.client,
+        sale.service,
+        String(sale.value),
+        sale.status,
+      ]),
+    ];
+    const csv = rows
+      .map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "financeiro-va-consultoria.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-6">
@@ -38,17 +366,193 @@ function Financial() {
         subtitle="Receitas, despesas, contas a pagar e a receber"
         action={
           <>
-            <Button variant="outline" size="sm"><Download className="mr-2 h-4 w-4" />Exportar</Button>
-            <Button className="gradient-primary text-primary-foreground"><Plus className="mr-2 h-4 w-4" />Novo lançamento</Button>
+            <Button variant="outline" size="sm" onClick={exportCsv}>
+              <Download className="mr-2 h-4 w-4" />
+              Exportar CSV
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setExpenses(initialExpenses);
+                toast.success("Despesas de demonstração restauradas.");
+              }}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Restaurar despesas
+            </Button>
+            <Dialog
+              open={open}
+              onOpenChange={(value) => {
+                if (value) {
+                  setOpen(true);
+                } else {
+                  closeDialog();
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <PremiumActionButton
+                  icon={<Plus />}
+                  title="Nova despesa"
+                  subtitle="Adicionar lançamento"
+                  size="sm"
+                  onClick={openCreateExpense}
+                />
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-2xl">
+                <form onSubmit={submitExpense}>
+                  <DialogHeader>
+                    <DialogTitle>
+                      {editingExpenseId ? "Editar despesa" : "Nova despesa"}
+                    </DialogTitle>
+                    <DialogDescription>
+                      Despesas ficam salvas neste navegador e recalculam os indicadores financeiros.
+                      No valor, use 5000, 5.000 ou 5.000,50.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="mt-5 grid gap-4 md:grid-cols-2">
+                    <DatePickerField
+                      label="Data"
+                      value={form.date}
+                      onChange={(value) => updateForm("date", value)}
+                      required
+                    />
+                    <FinanceField
+                      label="Descrição"
+                      value={form.desc}
+                      onChange={(value) => updateForm("desc", value)}
+                      required
+                    />
+                    <OptionSelectField
+                      label="Categoria"
+                      value={form.category}
+                      onChange={(value) => updateForm("category", value)}
+                      options={categories}
+                    />
+                    <FinanceField
+                      label="Valor"
+                      value={form.value}
+                      onChange={(value) => updateForm("value", value)}
+                      onBlur={() =>
+                        updateForm("value", formatCurrencyInput(parseCurrencyInput(form.value)))
+                      }
+                      placeholder="Ex: 5000 ou 5.000,50"
+                    />
+                    <OptionSelectField
+                      label="Status"
+                      value={form.status}
+                      onChange={(value) => updateForm("status", value)}
+                      options={expenseStatusOptions}
+                    />
+                    <OptionSelectField
+                      label="Recorrente"
+                      value={form.recurring}
+                      onChange={(value) => updateForm("recurring", value)}
+                      options={recurringOptions}
+                      labels={recurringLabels}
+                    />
+                  </div>
+                  <DialogFooter className="mt-6">
+                    <Button type="button" variant="outline" onClick={closeDialog}>
+                      Cancelar
+                    </Button>
+                    <Button type="submit" className="gradient-primary text-primary-foreground">
+                      {editingExpenseId ? "Atualizar despesa" : "Salvar despesa"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
           </>
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Receitas (pago)" value={formatBRL(totalReceitas)} delta={18} icon={ArrowUpCircle} accent="success" />
-        <KpiCard label="Despesas (pago)" value={formatBRL(totalDespesas)} delta={6} icon={ArrowDownCircle} accent="warning" />
-        <KpiCard label="A receber" value={formatBRL(aReceber)} icon={Wallet} accent="info" hint={`${sales.filter(s => s.status !== "pago").length} títulos`} />
-        <KpiCard label="A pagar" value={formatBRL(aPagar)} icon={AlertCircle} accent="destructive" hint={`${expenses.filter(e => e.status === "pendente").length} títulos`} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <KpiCard
+          label="Caixa atual"
+          value={formatBRL(currentCash)}
+          icon={Wallet}
+          accent="info"
+          hint="editável na aba Caixa"
+        />
+        <KpiCard
+          label="Receitas pagas"
+          value={formatBRL(totalReceitas)}
+          delta={18}
+          icon={ArrowUpCircle}
+          accent="success"
+        />
+        <KpiCard
+          label="Despesas pagas"
+          value={formatBRL(totalDespesas)}
+          delta={6}
+          icon={ArrowDownCircle}
+          accent="warning"
+        />
+        <KpiCard
+          label="A receber"
+          value={formatBRL(aReceber)}
+          icon={Wallet}
+          accent="info"
+          hint={`${receivables.filter((item) => item.status === "previsto").length} parcelas`}
+        />
+        <KpiCard
+          label="A pagar"
+          value={formatBRL(aPagar)}
+          icon={AlertCircle}
+          accent="destructive"
+          hint={`${expenses.filter((expense) => expense.status === "pendente" || expense.status === "atrasado").length} títulos`}
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <AnimatedDashboardCard
+          title="Caixa e recebíveis"
+          totalLabel="Disponibilidade"
+          primaryLabel="Caixa"
+          secondaryLabel="A receber"
+          primaryValue={currentCash}
+          secondaryValue={aReceber}
+          primaryDelta="saldo atual"
+          secondaryDelta="próximos recebimentos"
+          actionLabel="Atualiza com vendas e despesas"
+        />
+        <Card className="border-border/60 bg-card/60 p-5 lg:col-span-2">
+          <div className="grid h-full gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-success/20 bg-success/10 p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Entradas realizadas
+              </p>
+              <p className="mt-3 font-display text-2xl font-semibold text-success">
+                {formatBRL(totalReceitas)}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Receitas pagas e parcelas recebidas.
+              </p>
+            </div>
+            <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Saídas realizadas
+              </p>
+              <p className="mt-3 font-display text-2xl font-semibold text-destructive">
+                {formatBRL(totalDespesas)}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">Despesas marcadas como pagas.</p>
+            </div>
+            <div className="rounded-xl border border-primary/20 bg-primary/10 p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Caixa projetado
+              </p>
+              <p className="mt-3 font-display text-2xl font-semibold text-gradient-primary">
+                {formatBRL(projectedCash)}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Caixa atual + previsões - contas abertas.
+              </p>
+            </div>
+          </div>
+        </Card>
       </div>
 
       <Card className="border-border/60 bg-card/60 p-5">
@@ -57,14 +561,30 @@ function Financial() {
             <TabsList>
               <TabsTrigger value="despesas">Despesas</TabsTrigger>
               <TabsTrigger value="receitas">Receitas</TabsTrigger>
+              <TabsTrigger value="previsivel">Receita previsível</TabsTrigger>
+              <TabsTrigger value="caixa">Caixa</TabsTrigger>
               <TabsTrigger value="categorias">Categorias</TabsTrigger>
             </TabsList>
             <div className="flex items-center gap-2">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input placeholder="Buscar..." className="h-9 w-56 pl-8" />
+                <Input
+                  placeholder="Buscar..."
+                  className="h-9 w-56 pl-8"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
               </div>
-              <Button variant="outline" size="sm"><Filter className="mr-2 h-4 w-4" />Filtros</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  toast.info("Use a busca para filtrar por status, categoria, data ou descrição.")
+                }
+              >
+                <Filter className="mr-2 h-4 w-4" />
+                Filtros
+              </Button>
             </div>
           </div>
 
@@ -79,19 +599,79 @@ function Financial() {
                     <TableHead>Tipo</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {expenses.map((e) => (
-                    <TableRow key={e.id} className="hover:bg-muted/30">
-                      <TableCell className="font-medium">{e.desc}</TableCell>
-                      <TableCell><Badge variant="outline" className="border-border/60">{e.category}</Badge></TableCell>
-                      <TableCell className="text-muted-foreground">{new Date(e.date).toLocaleDateString("pt-BR")}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{e.recurring ? "Recorrente" : "Avulsa"}</TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">{formatBRL(e.value)}</TableCell>
-                      <TableCell><Badge className={`${statusBadge(e.status)} hover:${statusBadge(e.status)}`}>{e.status}</Badge></TableCell>
+                  {filteredExpenses.map((expense) => (
+                    <TableRow key={expense.id} className="hover:bg-muted/30">
+                      <TableCell className="font-medium">{expense.desc}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="border-border/60">
+                          {expense.category}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {new Date(expense.date).toLocaleDateString("pt-BR")}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {expense.recurring ? "Recorrente" : "Avulsa"}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {formatBRL(expense.value)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={`${statusBadge(expense.status)} hover:${statusBadge(expense.status)}`}
+                        >
+                          {expense.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditExpense(expense)}
+                          >
+                            <Pencil className="mr-1 h-3.5 w-3.5" />
+                            Editar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateExpenseStatus(expense.id, "pago")}
+                          >
+                            Pago
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateExpenseStatus(expense.id, "pendente")}
+                          >
+                            Pendente
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeExpense(expense.id)}
+                          >
+                            Excluir
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
+                  {filteredExpenses.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={7}
+                        className="py-8 text-center text-sm text-muted-foreground"
+                      >
+                        Nenhuma despesa encontrada para a busca atual.
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>
@@ -110,35 +690,246 @@ function Financial() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sales.map((s) => (
-                    <TableRow key={s.id} className="hover:bg-muted/30">
-                      <TableCell className="font-medium">{s.client}</TableCell>
-                      <TableCell className="text-muted-foreground">{s.service}</TableCell>
-                      <TableCell className="text-muted-foreground">{new Date(s.date).toLocaleDateString("pt-BR")}</TableCell>
-                      <TableCell className="text-right font-medium tabular-nums text-success">{formatBRL(s.value)}</TableCell>
-                      <TableCell><Badge className={`${statusBadge(s.status)} hover:${statusBadge(s.status)}`}>{s.status}</Badge></TableCell>
+                  {filteredSales.map((sale) => (
+                    <TableRow key={sale.id} className="hover:bg-muted/30">
+                      <TableCell className="font-medium">{sale.client}</TableCell>
+                      <TableCell className="text-muted-foreground">{sale.service}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {new Date(sale.date).toLocaleDateString("pt-BR")}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums text-success">
+                        {formatBRL(sale.value)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={`${statusBadge(sale.status)} hover:${statusBadge(sale.status)}`}
+                        >
+                          {statusLabel(sale.status)}
+                        </Badge>
+                      </TableCell>
                     </TableRow>
                   ))}
+                  {filteredSales.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="py-8 text-center text-sm text-muted-foreground"
+                      >
+                        Nenhuma receita encontrada para a busca atual.
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>
           </TabsContent>
 
+          <TabsContent value="previsivel" className="mt-0">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Parcelas e recebimentos futuros gerados por vendas e clientes. Ao marcar como
+                recebido, o caixa, recebíveis e status da venda são atualizados.
+              </p>
+              <Badge variant="outline" className="border-border/60">
+                {formatBRL(aReceber)} previsto
+              </Badge>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border/60">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead>Vencimento</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Serviço</TableHead>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead>Origem</TableHead>
+                    <TableHead>Parcela</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredReceivables.map((item) => {
+                    const seller = collaboratorsByName.get(
+                      normalizeCollaboratorName(item.seller),
+                    ) ?? {
+                      name: item.seller,
+                    };
+
+                    return (
+                      <TableRow key={item.id} className="hover:bg-muted/30">
+                        <TableCell className="text-muted-foreground">
+                          {new Date(`${item.dueDate}T12:00:00`).toLocaleDateString("pt-BR")}
+                        </TableCell>
+                        <TableCell className="font-medium">{item.client}</TableCell>
+                        <TableCell>{item.service}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <CollaboratorAvatar person={seller} className="h-7 w-7 text-[11px]" />
+                            <span className="text-muted-foreground">{item.seller}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="border-border/60 text-xs">
+                            {item.origin}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{item.label}</TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {formatBRL(item.amount)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={`${statusBadge(item.status)} hover:${statusBadge(item.status)}`}
+                          >
+                            {item.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => updateReceivableStatus(item.id, "recebido")}
+                            >
+                              Recebido
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => updateReceivableStatus(item.id, "previsto")}
+                            >
+                              Previsto
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {filteredReceivables.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={9}
+                        className="py-8 text-center text-sm text-muted-foreground"
+                      >
+                        Nenhuma receita previsível encontrada.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="caixa" className="mt-0">
+            <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+              <Card className="border-border/60 bg-background/40 p-5">
+                <form className="space-y-5" onSubmit={saveCashBalance}>
+                  <div>
+                    <h3 className="font-display text-lg font-semibold">Caixa operacional</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Informe o dinheiro disponível hoje para a operação financeira.
+                    </p>
+                  </div>
+                  <FinanceField
+                    label="Caixa atual"
+                    value={cashForm}
+                    onChange={setCashForm}
+                    onBlur={() => setCashForm(formatCurrencyInput(parseCurrencyInput(cashForm)))}
+                    placeholder="Ex: 5000 ou 5.000,50"
+                    required
+                  />
+                  <Button type="submit" className="gradient-primary text-primary-foreground">
+                    Salvar caixa
+                  </Button>
+                </form>
+              </Card>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Card className="border-border/60 bg-background/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Caixa informado
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-bold">{formatBRL(currentCash)}</p>
+                </Card>
+                <Card className="border-border/60 bg-background/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Após receber
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-bold text-success">
+                    {formatBRL(currentCash + aReceber)}
+                  </p>
+                </Card>
+                <Card className="border-border/60 bg-background/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Projetado</p>
+                  <p
+                    className={`mt-2 font-display text-2xl font-bold ${
+                      projectedCash >= 0 ? "text-info" : "text-destructive"
+                    }`}
+                  >
+                    {formatBRL(projectedCash)}
+                  </p>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+
           <TabsContent value="categorias" className="mt-0">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {expenseCategories.map((c) => (
-                <div key={c} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/40 p-3">
-                  <span className="text-sm font-medium">{c}</span>
-                  <Badge variant="outline" className="border-border/60 text-xs">Padrão</Badge>
+              {categories.map((category) => (
+                <div
+                  key={category}
+                  className="flex items-center justify-between rounded-lg border border-border/60 bg-background/40 p-3"
+                >
+                  <span className="text-sm font-medium">{category}</span>
+                  <Badge variant="outline" className="border-border/60 text-xs">
+                    Padrão
+                  </Badge>
                 </div>
               ))}
-              <button className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background/20 p-3 text-sm text-muted-foreground hover:border-primary hover:text-primary">
+              <button
+                className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background/20 p-3 text-sm text-muted-foreground hover:border-primary hover:text-primary"
+                onClick={addCategory}
+              >
                 <Plus className="h-4 w-4" /> Nova categoria
               </button>
             </div>
           </TabsContent>
         </Tabs>
       </Card>
+    </div>
+  );
+}
+
+function FinanceField({
+  label,
+  value,
+  onChange,
+  onBlur,
+  type = "text",
+  required = false,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onBlur?: () => void;
+  type?: string;
+  required?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Input
+        type={type}
+        value={value}
+        required={required}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={onBlur}
+      />
     </div>
   );
 }

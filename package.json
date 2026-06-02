@@ -1,13 +1,19 @@
 {
   "name": "tanstack_start_ts",
   "private": true,
-  "sideEffects": false,
+  "sideEffects": [
+    "*.css"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "vite build && node scripts/ensure-preview-entry.mjs",
     "build:dev": "vite build --mode development",
+    "deploy": "npm run build && npx wrangler deploy",
+    "deploy:login": "npx wrangler login",
     "preview": "vite preview",
+    "local:up": "powershell -ExecutionPolicy Bypass -File scripts/local-up.ps1",
+    "local:stop": "powershell -ExecutionPolicy Bypass -File scripts/local-stop.ps1",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

@@ -98,7 +98,7 @@
 }
 
 .dark {
-  --background: oklch(0.13 0.012 60);
+  --background: oklch(0.08 0.006 60);
   --foreground: oklch(0.96 0.005 60);
   --card: oklch(0.17 0.015 60);
   --card-foreground: oklch(0.96 0.005 60);
@@ -140,14 +140,225 @@
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
-  html, body { font-family: var(--font-sans); }
+  * {
+    border-color: var(--color-border);
+  }
+  html,
   body {
-    background-color: var(--color-background);
+    font-family: var(--font-sans);
+    max-width: 100%;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--primary) 55%, var(--border))
+      color-mix(in oklab, var(--background) 92%, black);
+  }
+  body {
+    background: var(--color-background);
     color: var(--color-foreground);
     font-feature-settings: "cv11", "ss01";
   }
-  h1, h2, h3, h4, .font-display { font-family: var(--font-display); letter-spacing: -0.02em; }
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+@media (max-width: 640px) {
+  *::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+}
+
+*::-webkit-scrollbar-track {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--background) 94%, black),
+    color-mix(in oklab, var(--background) 88%, black)
+  );
+  border-left: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 72px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--primary-glow) 88%, white),
+      color-mix(in oklab, var(--primary) 88%, black)
+    )
+    padding-box;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, white 18%, transparent),
+    0 0 18px color-mix(in oklab, var(--primary) 28%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--primary-glow) 96%, white),
+      color-mix(in oklab, var(--primary) 96%, black)
+    )
+    padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--background);
+}
+
+@keyframes move-aurora {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes trace-border {
+  0% {
+    stroke-dashoffset: 2000;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes dashboard-orbit-cw {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dashboard-orbit-ccw {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes dashboard-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.36;
+    transform: scale(0.86);
+  }
+  50% {
+    opacity: 0.82;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes login-word-appear {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.92);
+    filter: blur(10px);
+  }
+  55% {
+    opacity: 0.82;
+    transform: translateY(8px) scale(0.98);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes word-appear {
+  0% {
+    opacity: 0;
+    transform: translateY(30px) scale(0.8);
+    filter: blur(10px);
+  }
+  50% {
+    opacity: 0.8;
+    transform: translateY(10px) scale(0.95);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes underline-grow {
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes login-grid-draw {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 1000;
+  }
+  55% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0.18;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes login-pulse-glow {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes login-float {
+  0%,
+  100% {
+    opacity: 0.22;
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    opacity: 0.7;
+    transform: translate3d(5px, -12px, 0);
+  }
+  50% {
+    opacity: 0.42;
+    transform: translate3d(-4px, -5px, 0);
+  }
+  75% {
+    opacity: 0.86;
+    transform: translate3d(8px, -16px, 0);
+  }
+}
+
+@keyframes login-ripple {
+  0% {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(18);
+  }
 }
 
 @layer utilities {
@@ -161,16 +372,356 @@
     color: transparent;
   }
   .shadow-elegant {
-    box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.04), 0 10px 30px -12px oklch(0 0 0 / 0.12);
+    box-shadow:
+      0 1px 2px 0 oklch(0 0 0 / 0.04),
+      0 10px 30px -12px oklch(0 0 0 / 0.12);
   }
   .shadow-glow {
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 15%, transparent),
-                0 8px 30px -8px color-mix(in oklab, var(--primary) 35%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--primary) 15%, transparent),
+      0 8px 30px -8px color-mix(in oklab, var(--primary) 35%, transparent);
   }
   .ring-grid {
     background-image:
-      linear-gradient(to right, color-mix(in oklab, var(--border) 60%, transparent) 1px, transparent 1px),
-      linear-gradient(to bottom, color-mix(in oklab, var(--border) 60%, transparent) 1px, transparent 1px);
+      linear-gradient(
+        to right,
+        color-mix(in oklab, var(--border) 60%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--border) 60%, transparent) 1px,
+        transparent 1px
+      );
     background-size: 24px 24px;
+  }
+  .aurora-bg {
+    position: absolute;
+    inset: -18%;
+    opacity: 0.36;
+    filter: blur(70px);
+    background:
+      radial-gradient(
+        circle at 20% 20%,
+        color-mix(in oklab, var(--primary) 45%, transparent),
+        transparent 24%
+      ),
+      radial-gradient(
+        circle at 80% 16%,
+        color-mix(in oklab, var(--primary-glow) 35%, transparent),
+        transparent 26%
+      ),
+      radial-gradient(
+        circle at 50% 88%,
+        color-mix(in oklab, var(--primary) 24%, black),
+        transparent 34%
+      );
+    background-size: 180% 180%;
+    animation: move-aurora 18s ease-in-out infinite;
+    will-change: background-position;
+  }
+  .holographic-grid {
+    position: absolute;
+    inset: 0;
+    opacity: 0.08;
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, white 10%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, white 8%, transparent) 1px, transparent 1px);
+    background-size: 36px 36px;
+    mask-image: radial-gradient(circle at center, black, transparent 78%);
+  }
+  .holographic-card {
+    --mouse-x: 50%;
+    --mouse-y: 50%;
+    --tilt-x: 0deg;
+    --tilt-y: 0deg;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    transform: perspective(1100px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+    transform-style: preserve-3d;
+    transition:
+      transform 180ms ease,
+      border-color 180ms ease,
+      box-shadow 180ms ease,
+      background-color 180ms ease;
+    background: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--card) 88%, black),
+      color-mix(in oklab, var(--card) 94%, var(--primary) 6%)
+    );
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 7%, transparent),
+      0 18px 50px -32px color-mix(in oklab, var(--primary) 42%, black);
+    will-change: transform;
+  }
+  .holographic-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.38;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        420px circle at var(--mouse-x) var(--mouse-y),
+        color-mix(in oklab, var(--primary) 24%, transparent),
+        transparent 44%
+    ),
+      linear-gradient(135deg, color-mix(in oklab, var(--primary) 10%, transparent), transparent 32%);
+    transition: opacity 180ms ease;
+  }
+  .holographic-card::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+      linear-gradient(
+        120deg,
+        transparent 0 32%,
+        color-mix(in oklab, white 9%, transparent) 42%,
+        transparent 54%
+      ),
+      radial-gradient(
+        circle at top left,
+        color-mix(in oklab, var(--primary) 12%, transparent),
+        transparent 36%
+      );
+    opacity: 0.38;
+  }
+  .holographic-card:hover {
+    border-color: color-mix(in oklab, var(--primary) 48%, var(--border));
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 10%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent),
+      0 24px 70px -34px color-mix(in oklab, var(--primary) 62%, black);
+  }
+  .holographic-card:hover::before {
+    opacity: 1;
+  }
+  .holographic-border {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .holographic-border::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--primary-glow) 72%, transparent),
+      transparent 28%,
+      transparent 62%,
+      color-mix(in oklab, var(--primary) 42%, transparent)
+    );
+    opacity: 0.46;
+    transition: opacity 180ms ease;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+  .holographic-card:hover > .holographic-border::before {
+    opacity: 1;
+  }
+  .dashboard-orbit {
+    transform-box: view-box;
+    transform-origin: 224px 212px;
+    will-change: transform;
+  }
+  .dashboard-orbit-cw {
+    animation: dashboard-orbit-cw 12s linear infinite;
+  }
+  .dashboard-orbit-ccw {
+    animation: dashboard-orbit-ccw 16s linear infinite;
+  }
+  .dashboard-dot-pulse {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: dashboard-dot-pulse 1.8s ease-in-out infinite;
+    will-change: opacity, transform;
+  }
+  .login-grid-line {
+    stroke: color-mix(in oklab, var(--primary) 75%, white);
+    stroke-width: 0.5;
+    stroke-dasharray: 5 5;
+    stroke-dashoffset: 1000;
+    opacity: 0;
+    animation: login-grid-draw 2.4s ease-out forwards;
+  }
+  .login-grid-line.delay-200,
+  .login-detail-dot.delay-200 {
+    animation-delay: 200ms;
+  }
+  .login-grid-line.delay-400 {
+    animation-delay: 400ms;
+  }
+  .login-detail-dot.delay-500 {
+    animation-delay: 500ms;
+  }
+  .login-grid-line.delay-600 {
+    animation-delay: 600ms;
+  }
+  .login-grid-line.delay-700,
+  .login-detail-dot.delay-700,
+  .login-floating.delay-700 {
+    animation-delay: 700ms;
+  }
+  .login-grid-line.delay-1000,
+  .login-detail-dot.delay-1000,
+  .login-floating.delay-1000 {
+    animation-delay: 1000ms;
+  }
+  .login-detail-dot {
+    fill: color-mix(in oklab, var(--primary) 82%, white);
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: login-pulse-glow 3s ease-in-out infinite;
+  }
+  .login-corner {
+    position: absolute;
+    height: 42px;
+    width: 42px;
+    border-left: 1px solid color-mix(in oklab, var(--primary) 42%, transparent);
+    border-top: 1px solid color-mix(in oklab, var(--primary) 42%, transparent);
+    opacity: 0;
+    animation: login-word-appear 1s ease-out 2.2s forwards;
+  }
+  .login-corner::after {
+    content: "";
+    position: absolute;
+    left: -3px;
+    top: -3px;
+    height: 6px;
+    width: 6px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--primary) 85%, white);
+    box-shadow: 0 0 22px color-mix(in oklab, var(--primary) 58%, transparent);
+  }
+  .login-floating {
+    position: absolute;
+    height: 3px;
+    width: 3px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--primary) 86%, white);
+    box-shadow: 0 0 18px color-mix(in oklab, var(--primary) 55%, transparent);
+    animation: login-float 4.2s ease-in-out infinite;
+  }
+  .login-floating.delay-300 {
+    animation-delay: 300ms;
+  }
+  .login-mouse-gradient {
+    position: fixed;
+    z-index: 1;
+    height: 24rem;
+    width: 24rem;
+    pointer-events: none;
+    border-radius: 999px;
+    background-image: radial-gradient(
+      circle,
+      color-mix(in oklab, var(--primary) 12%, transparent),
+      color-mix(in oklab, var(--primary-glow) 7%, transparent),
+      transparent 68%
+    );
+    filter: blur(28px);
+    transform: translate(-50%, -50%);
+    transition:
+      left 70ms linear,
+      top 70ms linear,
+      opacity 260ms ease-out;
+    will-change: left, top, opacity;
+  }
+  .login-ripple {
+    position: fixed;
+    z-index: 9999;
+    height: 5px;
+    width: 5px;
+    pointer-events: none;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--primary) 75%, white);
+    animation: login-ripple 0.9s ease-out forwards;
+  }
+  .login-word {
+    display: inline-block;
+    margin-right: 0.12em;
+    opacity: 0;
+    animation: login-word-appear 0.8s ease-out forwards;
+    transition:
+      color 180ms ease,
+      transform 180ms ease,
+      text-shadow 180ms ease;
+  }
+  .login-word:hover {
+    color: color-mix(in oklab, var(--primary) 84%, white);
+    text-shadow: 0 0 24px color-mix(in oklab, var(--primary) 32%, transparent);
+    transform: translateY(-2px);
+  }
+  .word-animate {
+    opacity: 0;
+    transition:
+      color 0.3s ease,
+      transform 0.3s ease,
+      text-shadow 0.3s ease;
+  }
+  .word-animate:not(.login-reveal-block) {
+    display: inline-block;
+    margin: 0 0.1em;
+  }
+  .login-reveal-block {
+    margin: 0;
+  }
+  .word-animate:hover {
+    color: color-mix(in oklab, var(--primary) 82%, white);
+    transform: translateY(-2px);
+  }
+  .text-decoration-animate {
+    position: relative;
+  }
+  .text-decoration-animate::after {
+    content: "";
+    position: absolute;
+    bottom: -0.35rem;
+    left: 0;
+    height: 1px;
+    width: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--primary) 70%, white),
+      transparent
+    );
+    animation: underline-grow 2s ease-out forwards;
+    animation-delay: 2s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holographic-card {
+    transform: none !important;
+  }
+  .dashboard-orbit,
+  .dashboard-dot-pulse {
+    animation: none !important;
+  }
+  .login-grid-line,
+  .login-detail-dot,
+  .login-corner,
+  .login-floating,
+  .login-ripple,
+  .login-word,
+  .word-animate,
+  .text-decoration-animate::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

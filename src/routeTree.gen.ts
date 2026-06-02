@@ -9,24 +9,33 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SignTokenRouteImport } from './routes/sign.$token'
 import { Route as AppUsersRouteImport } from './routes/_app/users'
-import { Route as AppSimulatorRouteImport } from './routes/_app/simulator'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppServicesRouteImport } from './routes/_app/services'
 import { Route as AppSalesRouteImport } from './routes/_app/sales'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
-import { Route as AppPersonalRouteImport } from './routes/_app/personal'
+import { Route as AppRankingRouteImport } from './routes/_app/ranking'
+import { Route as AppInvestmentsRouteImport } from './routes/_app/investments'
 import { Route as AppInsightsRouteImport } from './routes/_app/insights'
 import { Route as AppGoalsRouteImport } from './routes/_app/goals'
 import { Route as AppForecastRouteImport } from './routes/_app/forecast'
 import { Route as AppFinancialRouteImport } from './routes/_app/financial'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppContractsRouteImport } from './routes/_app/contracts'
 import { Route as AppClientsRouteImport } from './routes/_app/clients'
 import { Route as AppCashflowRouteImport } from './routes/_app/cashflow'
+import { Route as AppCalendarRouteImport } from './routes/_app/calendar'
 import { Route as AppAlertsRouteImport } from './routes/_app/alerts'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
@@ -36,14 +45,14 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SignTokenRoute = SignTokenRouteImport.update({
+  id: '/sign/$token',
+  path: '/sign/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppUsersRoute = AppUsersRouteImport.update({
   id: '/users',
   path: '/users',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSimulatorRoute = AppSimulatorRouteImport.update({
-  id: '/simulator',
-  path: '/simulator',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -66,9 +75,14 @@ const AppReportsRoute = AppReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AppRoute,
 } as any)
-const AppPersonalRoute = AppPersonalRouteImport.update({
-  id: '/personal',
-  path: '/personal',
+const AppRankingRoute = AppRankingRouteImport.update({
+  id: '/ranking',
+  path: '/ranking',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInvestmentsRoute = AppInvestmentsRouteImport.update({
+  id: '/investments',
+  path: '/investments',
   getParentRoute: () => AppRoute,
 } as any)
 const AppInsightsRoute = AppInsightsRouteImport.update({
@@ -96,6 +110,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const AppContractsRoute = AppContractsRouteImport.update({
+  id: '/contracts',
+  path: '/contracts',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppClientsRoute = AppClientsRouteImport.update({
   id: '/clients',
   path: '/clients',
@@ -106,6 +125,11 @@ const AppCashflowRoute = AppCashflowRouteImport.update({
   path: '/cashflow',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCalendarRoute = AppCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAlertsRoute = AppAlertsRouteImport.update({
   id: '/alerts',
   path: '/alerts',
@@ -114,125 +138,158 @@ const AppAlertsRoute = AppAlertsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/alerts': typeof AppAlertsRoute
+  '/calendar': typeof AppCalendarRoute
   '/cashflow': typeof AppCashflowRoute
   '/clients': typeof AppClientsRoute
+  '/contracts': typeof AppContractsRoute
   '/dashboard': typeof AppDashboardRoute
   '/financial': typeof AppFinancialRoute
   '/forecast': typeof AppForecastRoute
   '/goals': typeof AppGoalsRoute
   '/insights': typeof AppInsightsRoute
-  '/personal': typeof AppPersonalRoute
+  '/investments': typeof AppInvestmentsRoute
+  '/ranking': typeof AppRankingRoute
   '/reports': typeof AppReportsRoute
   '/sales': typeof AppSalesRoute
   '/services': typeof AppServicesRoute
   '/settings': typeof AppSettingsRoute
-  '/simulator': typeof AppSimulatorRoute
   '/users': typeof AppUsersRoute
+  '/sign/$token': typeof SignTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/alerts': typeof AppAlertsRoute
+  '/calendar': typeof AppCalendarRoute
   '/cashflow': typeof AppCashflowRoute
   '/clients': typeof AppClientsRoute
+  '/contracts': typeof AppContractsRoute
   '/dashboard': typeof AppDashboardRoute
   '/financial': typeof AppFinancialRoute
   '/forecast': typeof AppForecastRoute
   '/goals': typeof AppGoalsRoute
   '/insights': typeof AppInsightsRoute
-  '/personal': typeof AppPersonalRoute
+  '/investments': typeof AppInvestmentsRoute
+  '/ranking': typeof AppRankingRoute
   '/reports': typeof AppReportsRoute
   '/sales': typeof AppSalesRoute
   '/services': typeof AppServicesRoute
   '/settings': typeof AppSettingsRoute
-  '/simulator': typeof AppSimulatorRoute
   '/users': typeof AppUsersRoute
+  '/sign/$token': typeof SignTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/login': typeof LoginRoute
   '/_app/alerts': typeof AppAlertsRoute
+  '/_app/calendar': typeof AppCalendarRoute
   '/_app/cashflow': typeof AppCashflowRoute
   '/_app/clients': typeof AppClientsRoute
+  '/_app/contracts': typeof AppContractsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/financial': typeof AppFinancialRoute
   '/_app/forecast': typeof AppForecastRoute
   '/_app/goals': typeof AppGoalsRoute
   '/_app/insights': typeof AppInsightsRoute
-  '/_app/personal': typeof AppPersonalRoute
+  '/_app/investments': typeof AppInvestmentsRoute
+  '/_app/ranking': typeof AppRankingRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/sales': typeof AppSalesRoute
   '/_app/services': typeof AppServicesRoute
   '/_app/settings': typeof AppSettingsRoute
-  '/_app/simulator': typeof AppSimulatorRoute
   '/_app/users': typeof AppUsersRoute
+  '/sign/$token': typeof SignTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
     | '/alerts'
+    | '/calendar'
     | '/cashflow'
     | '/clients'
+    | '/contracts'
     | '/dashboard'
     | '/financial'
     | '/forecast'
     | '/goals'
     | '/insights'
-    | '/personal'
+    | '/investments'
+    | '/ranking'
     | '/reports'
     | '/sales'
     | '/services'
     | '/settings'
-    | '/simulator'
     | '/users'
+    | '/sign/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/login'
     | '/alerts'
+    | '/calendar'
     | '/cashflow'
     | '/clients'
+    | '/contracts'
     | '/dashboard'
     | '/financial'
     | '/forecast'
     | '/goals'
     | '/insights'
-    | '/personal'
+    | '/investments'
+    | '/ranking'
     | '/reports'
     | '/sales'
     | '/services'
     | '/settings'
-    | '/simulator'
     | '/users'
+    | '/sign/$token'
   id:
     | '__root__'
     | '/'
     | '/_app'
+    | '/login'
     | '/_app/alerts'
+    | '/_app/calendar'
     | '/_app/cashflow'
     | '/_app/clients'
+    | '/_app/contracts'
     | '/_app/dashboard'
     | '/_app/financial'
     | '/_app/forecast'
     | '/_app/goals'
     | '/_app/insights'
-    | '/_app/personal'
+    | '/_app/investments'
+    | '/_app/ranking'
     | '/_app/reports'
     | '/_app/sales'
     | '/_app/services'
     | '/_app/settings'
-    | '/_app/simulator'
     | '/_app/users'
+    | '/sign/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  LoginRoute: typeof LoginRoute
+  SignTokenRoute: typeof SignTokenRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app': {
       id: '/_app'
       path: ''
@@ -247,18 +304,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sign/$token': {
+      id: '/sign/$token'
+      path: '/sign/$token'
+      fullPath: '/sign/$token'
+      preLoaderRoute: typeof SignTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/users': {
       id: '/_app/users'
       path: '/users'
       fullPath: '/users'
       preLoaderRoute: typeof AppUsersRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/simulator': {
-      id: '/_app/simulator'
-      path: '/simulator'
-      fullPath: '/simulator'
-      preLoaderRoute: typeof AppSimulatorRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings': {
@@ -289,11 +346,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReportsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/personal': {
-      id: '/_app/personal'
-      path: '/personal'
-      fullPath: '/personal'
-      preLoaderRoute: typeof AppPersonalRouteImport
+    '/_app/ranking': {
+      id: '/_app/ranking'
+      path: '/ranking'
+      fullPath: '/ranking'
+      preLoaderRoute: typeof AppRankingRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/investments': {
+      id: '/_app/investments'
+      path: '/investments'
+      fullPath: '/investments'
+      preLoaderRoute: typeof AppInvestmentsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/insights': {
@@ -331,6 +395,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/contracts': {
+      id: '/_app/contracts'
+      path: '/contracts'
+      fullPath: '/contracts'
+      preLoaderRoute: typeof AppContractsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/clients': {
       id: '/_app/clients'
       path: '/clients'
@@ -345,6 +416,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCashflowRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/calendar': {
+      id: '/_app/calendar'
+      path: '/calendar'
+      fullPath: '/calendar'
+      preLoaderRoute: typeof AppCalendarRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/alerts': {
       id: '/_app/alerts'
       path: '/alerts'
@@ -357,37 +435,41 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAlertsRoute: typeof AppAlertsRoute
+  AppCalendarRoute: typeof AppCalendarRoute
   AppCashflowRoute: typeof AppCashflowRoute
   AppClientsRoute: typeof AppClientsRoute
+  AppContractsRoute: typeof AppContractsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppFinancialRoute: typeof AppFinancialRoute
   AppForecastRoute: typeof AppForecastRoute
   AppGoalsRoute: typeof AppGoalsRoute
   AppInsightsRoute: typeof AppInsightsRoute
-  AppPersonalRoute: typeof AppPersonalRoute
+  AppInvestmentsRoute: typeof AppInvestmentsRoute
+  AppRankingRoute: typeof AppRankingRoute
   AppReportsRoute: typeof AppReportsRoute
   AppSalesRoute: typeof AppSalesRoute
   AppServicesRoute: typeof AppServicesRoute
   AppSettingsRoute: typeof AppSettingsRoute
-  AppSimulatorRoute: typeof AppSimulatorRoute
   AppUsersRoute: typeof AppUsersRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAlertsRoute: AppAlertsRoute,
+  AppCalendarRoute: AppCalendarRoute,
   AppCashflowRoute: AppCashflowRoute,
   AppClientsRoute: AppClientsRoute,
+  AppContractsRoute: AppContractsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppFinancialRoute: AppFinancialRoute,
   AppForecastRoute: AppForecastRoute,
   AppGoalsRoute: AppGoalsRoute,
   AppInsightsRoute: AppInsightsRoute,
-  AppPersonalRoute: AppPersonalRoute,
+  AppInvestmentsRoute: AppInvestmentsRoute,
+  AppRankingRoute: AppRankingRoute,
   AppReportsRoute: AppReportsRoute,
   AppSalesRoute: AppSalesRoute,
   AppServicesRoute: AppServicesRoute,
   AppSettingsRoute: AppSettingsRoute,
-  AppSimulatorRoute: AppSimulatorRoute,
   AppUsersRoute: AppUsersRoute,
 }
 
@@ -396,7 +478,19 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  LoginRoute: LoginRoute,
+  SignTokenRoute: SignTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

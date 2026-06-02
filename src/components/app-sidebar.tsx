@@ -1,18 +1,44 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+﻿import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  LayoutDashboard, Wallet, TrendingUp, LineChart, ShoppingCart, Users,
-  Target, FileBarChart, Bell, Lightbulb, UserCog, Briefcase, Settings, PiggyBank, Calculator,
+  LayoutDashboard,
+  Wallet,
+  TrendingUp,
+  ShoppingCart,
+  Users,
+  Target,
+  FileBarChart,
+  Bell,
+  Lightbulb,
+  UserCog,
+  Briefcase,
+  Settings,
+  CalendarDays,
+  Landmark,
+  Trophy,
+  FileText,
 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
-  SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
+import { getAuthSession, type AuthSession } from "@/lib/auth";
+import { canAccessRoute, getDefaultRouteForSession, type AppRoutePath } from "@/lib/permissions";
 
 const groups = [
   {
     label: "Visão geral",
     items: [
       { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+      { title: "Calendário", url: "/calendar", icon: CalendarDays },
       { title: "Insights", url: "/insights", icon: Lightbulb },
       { title: "Alertas", url: "/alerts", icon: Bell },
     ],
@@ -22,16 +48,16 @@ const groups = [
     items: [
       { title: "Gestão Financeira", url: "/financial", icon: Wallet },
       { title: "Fluxo de Caixa", url: "/cashflow", icon: TrendingUp },
-      { title: "Previsibilidade", url: "/forecast", icon: LineChart },
-      { title: "Simulador", url: "/simulator", icon: Calculator },
-      { title: "Gestão Pessoal", url: "/personal", icon: PiggyBank },
+      { title: "Investimentos", url: "/investments", icon: Landmark },
     ],
   },
   {
     label: "Comercial",
     items: [
       { title: "Vendas", url: "/sales", icon: ShoppingCart },
-      { title: "CRM / Clientes", url: "/clients", icon: Users },
+      { title: "Clientes", url: "/clients", icon: Users },
+      { title: "Contratos", url: "/contracts", icon: FileText },
+      { title: "Ranking", url: "/ranking", icon: Trophy },
       { title: "Serviços", url: "/services", icon: Briefcase },
       { title: "Metas", url: "/goals", icon: Target },
     ],
@@ -47,28 +73,67 @@ const groups = [
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const path = useRouterState({ select: (r) => r.location.pathname });
+  const [session, setSession] = useState<AuthSession | null>(null);
+
+  useEffect(() => {
+    const refreshSession = () => setSession(getAuthSession());
+    refreshSession();
+    window.addEventListener("va-auth-change", refreshSession);
+    window.addEventListener("storage", refreshSession);
+    return () => {
+      window.removeEventListener("va-auth-change", refreshSession);
+      window.removeEventListener("storage", refreshSession);
+    };
+  }, []);
+
+  const visibleGroups = useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => canAccessRoute(session, item.url)),
+        }))
+        .filter((group) => group.items.length > 0),
+    [session],
+  );
+  const homeRoute = getDefaultRouteForSession(session);
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
       <SidebarHeader className="border-b border-sidebar-border px-4 py-5">
-        <Link to="/dashboard" className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-lg gradient-primary font-display text-base font-bold text-primary-foreground shadow-glow">
-            VA
+        <Link to={homeRoute} className={collapsed ? "flex justify-center" : "flex flex-col gap-2"}>
+          <div
+            className={
+              collapsed
+                ? "grid h-10 w-10 place-items-center overflow-hidden rounded-xl border border-primary/35 bg-black shadow-glow"
+                : "flex h-16 items-center overflow-hidden rounded-2xl border border-primary/25 bg-black/70 px-3 shadow-[0_0_35px_hsl(24_100%_57%/0.16)]"
+            }
+          >
+            <img
+              src={collapsed ? "/va-consultoria-mark.png" : "/va-consultoria-logo-cropped.png"}
+              alt="VA Consultoria"
+              className={collapsed ? "h-8 w-8 object-contain" : "h-14 w-full object-contain"}
+              draggable={false}
+            />
           </div>
           {!collapsed && (
-            <div className="flex flex-col leading-tight">
-              <span className="font-display text-sm font-semibold text-sidebar-foreground">VA Consultoria</span>
-              <span className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50">Manager</span>
+            <div className="flex items-center justify-between gap-2 px-1 leading-tight">
+              <span className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50">
+                Manager
+              </span>
+              <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                ERP & CRM
+              </span>
             </div>
           )}
         </Link>
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-4">
-        {groups.map((group) => (
+        {visibleGroups.map((group) => (
           <SidebarGroup key={group.label}>
             {!collapsed && (
               <SidebarGroupLabel className="text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/40">
@@ -81,8 +146,18 @@ export function AppSidebar() {
                   const active = path === item.url;
                   return (
                     <SidebarMenuItem key={item.url}>
-                      <SidebarMenuButton asChild isActive={active} className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-primary data-[active=true]:font-medium hover:bg-sidebar-accent/60">
-                        <Link to={item.url} className="flex items-center gap-3">
+                      <SidebarMenuButton
+                        asChild
+                        isActive={active}
+                        className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-primary data-[active=true]:font-medium hover:bg-sidebar-accent/60"
+                      >
+                        <Link
+                          to={item.url as AppRoutePath}
+                          className="flex items-center gap-3"
+                          onClick={() => {
+                            if (isMobile) setOpenMobile(false);
+                          }}
+                        >
                           <item.icon className="h-4 w-4 shrink-0" />
                           {!collapsed && <span className="text-sm">{item.title}</span>}
                           {active && !collapsed && (
