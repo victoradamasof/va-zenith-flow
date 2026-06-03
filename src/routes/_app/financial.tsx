@@ -282,6 +282,41 @@ function Financial() {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  const hasCategory = (category: string) =>
+    categories.some(
+      (item) => item.trim().toLocaleLowerCase("pt-BR") === category.trim().toLocaleLowerCase("pt-BR"),
+    );
+
+  const saveCategoryIfMissing = (category: string) => {
+    const normalizedCategory = category.trim() || "Outros";
+    setCategories((current) => {
+      const alreadyExists = current.some(
+        (item) =>
+          item.trim().toLocaleLowerCase("pt-BR") ===
+          normalizedCategory.toLocaleLowerCase("pt-BR"),
+      );
+
+      return alreadyExists ? current : [...current, normalizedCategory];
+    });
+    return normalizedCategory;
+  };
+
+  const applySuggestedCategory = (category: string, notify = true) => {
+    const normalizedCategory = category.trim() || "Outros";
+    const categoryAlreadyExists = hasCategory(normalizedCategory);
+
+    saveCategoryIfMissing(normalizedCategory);
+    updateForm("category", normalizedCategory);
+
+    if (notify) {
+      toast.success(
+        categoryAlreadyExists
+          ? `Categoria "${normalizedCategory}" aplicada.`
+          : `Categoria "${normalizedCategory}" criada e aplicada.`,
+      );
+    }
+  };
+
   const openCreateExpense = () => {
     setEditingExpenseId(null);
     setForm(emptyExpenseForm);
@@ -311,11 +346,12 @@ function Financial() {
     event.preventDefault();
     const desc = form.desc.trim();
     if (!desc) return;
+    const category = saveCategoryIfMissing(form.category);
     const expense: Expense = {
       id: editingExpenseId ?? `e-${Date.now()}`,
       date: form.date,
       desc,
-      category: form.category.trim() || "Outros",
+      category,
       value: parseCurrencyInput(form.value),
       status: form.status,
       recurring: form.recurring === "true",
@@ -515,7 +551,7 @@ function Financial() {
                       onChange={(value) => updateForm("desc", value)}
                       onBlur={() => {
                         if (smartExpenseSuggestion.confidence >= 0.78) {
-                          updateForm("category", smartExpenseSuggestion.category);
+                          applySuggestedCategory(smartExpenseSuggestion.category, false);
                         }
                       }}
                       required
@@ -537,7 +573,7 @@ function Financial() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => updateForm("category", smartExpenseSuggestion.category)}
+                            onClick={() => applySuggestedCategory(smartExpenseSuggestion.category)}
                           >
                             Aplicar categoria
                           </Button>
