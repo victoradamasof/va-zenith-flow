@@ -49,6 +49,7 @@ import {
   type BankTransactionType,
 } from "@/lib/bank-data";
 import { parseCurrencyInput } from "@/lib/receivables";
+import { classifyTransactionText } from "@/lib/transaction-intelligence";
 import {
   AlertTriangle,
   Banknote,
@@ -121,6 +122,18 @@ function BankIntegration() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyTransactionForm);
   const [connectionForm, setConnectionForm] = useState(connection);
+  const smartSuggestion = useMemo(
+    () =>
+      classifyTransactionText({
+        description: form.description,
+        counterparty: form.counterparty,
+        amount: form.type === "entrada" ? parseCurrencyInput(form.amount) : -parseCurrencyInput(form.amount),
+        fallbackType: form.type,
+        fallbackMethod: form.method,
+        fallbackCategory: form.category,
+      }),
+    [form.amount, form.category, form.counterparty, form.description, form.method, form.type],
+  );
 
   const realizedInflows = calculateBankInflows(transactions);
   const realizedOutflows = calculateBankOutflows(transactions);
@@ -248,9 +261,14 @@ function BankIntegration() {
       const parsed = rows.slice(1).flatMap((row, index) => {
         const columns = row.split(";").map((column) => column.replace(/^"|"$/g, "").trim());
         const [date, description, amountRaw, typeRaw, methodRaw, categoryRaw, statusRaw] = columns;
-        const amount = parseCurrencyInput(amountRaw ?? "");
+        const amount = parseSignedCurrencyInput(amountRaw ?? "");
         if (!date || !description || !amount) return [];
-        const type = normalizeOption(typeRaw, transactionTypeOptions, amount >= 0 ? "entrada" : "saida");
+        const suggestion = classifyTransactionText({
+          description,
+          amount,
+          fallbackType: amount >= 0 ? "entrada" : "saida",
+        });
+        const type = normalizeOption(typeRaw, transactionTypeOptions, suggestion.type);
         return [
           {
             id: `bank-csv-${Date.now()}-${index}`,
@@ -258,8 +276,8 @@ function BankIntegration() {
             description,
             amount: Math.abs(amount),
             type,
-            method: normalizeOption(methodRaw, transactionMethodOptions, "outro"),
-            category: categoryRaw || "Outros",
+            method: normalizeOption(methodRaw, transactionMethodOptions, suggestion.method),
+            category: categoryRaw || suggestion.category,
             status: normalizeOption(statusRaw, transactionStatusOptions, "realizado"),
             source: "csv" as const,
           },
@@ -501,8 +519,46 @@ function BankIntegration() {
                   onChange={(event) =>
                     setForm((current) => ({ ...current, description: event.target.value }))
                   }
+                  onBlur={() => {
+                    if (smartSuggestion.confidence >= 0.78) {
+                      setForm((current) => ({
+                        ...current,
+                        category: smartSuggestion.category,
+                        type: smartSuggestion.type,
+                        method: smartSuggestion.method,
+                      }));
+                    }
+                  }}
                   required
                 />
+                {form.description.trim() && (
+                  <div className="flex flex-col gap-2 rounded-lg border border-primary/25 bg-primary/5 p-3 text-xs sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-muted-foreground">
+                      Sugestão inteligente:{" "}
+                      <span className="font-semibold text-foreground">{smartSuggestion.category}</span>{" "}
+                      · {typeLabels[smartSuggestion.type]} · {bankMethodLabels[smartSuggestion.method]}
+                      <span className="ml-1 text-primary">
+                        {Math.round(smartSuggestion.confidence * 100)}%
+                      </span>
+                      <div className="mt-0.5">{smartSuggestion.reason}</div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          category: smartSuggestion.category,
+                          type: smartSuggestion.type,
+                          method: smartSuggestion.method,
+                        }))
+                      }
+                    >
+                      Aplicar
+                    </Button>
+                  </div>
+                )}
               </div>
               <OptionSelectField
                 label="Metodo"
@@ -654,4 +710,9 @@ function BankIntegration() {
 function normalizeOption<T extends string>(value: string | undefined, options: readonly T[], fallback: T) {
   const clean = (value ?? "").trim().toLowerCase();
   return options.find((option) => option.toLowerCase() === clean) ?? fallback;
+}
+
+function parseSignedCurrencyInput(value: string) {
+  const signal = value.trim().startsWith("-") || value.includes("(-") ? -1 : 1;
+  return parseCurrencyInput(value) * signal;
 }

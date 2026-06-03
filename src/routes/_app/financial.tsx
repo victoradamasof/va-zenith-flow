@@ -71,6 +71,7 @@ import {
   type BankTransaction,
 } from "@/lib/bank-data";
 import type { Receivable } from "@/lib/receivables";
+import { classifyTransactionText } from "@/lib/transaction-intelligence";
 
 export const Route = createFileRoute("/_app/financial")({
   component: Financial,
@@ -151,6 +152,17 @@ function Financial() {
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyExpenseForm);
   const [cashForm, setCashForm] = useState(formatCurrencyInput(defaultCashBalance));
+  const smartExpenseSuggestion = useMemo(
+    () =>
+      classifyTransactionText({
+        description: form.desc,
+        amount: -parseCurrencyInput(form.value),
+        fallbackType: "saida",
+        fallbackMethod: "pagamento",
+        fallbackCategory: form.category,
+      }),
+    [form.category, form.desc, form.value],
+  );
 
   const filteredExpenses = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -447,8 +459,37 @@ function Financial() {
                       label="Descrição"
                       value={form.desc}
                       onChange={(value) => updateForm("desc", value)}
+                      onBlur={() => {
+                        if (smartExpenseSuggestion.confidence >= 0.78) {
+                          updateForm("category", smartExpenseSuggestion.category);
+                        }
+                      }}
                       required
                     />
+                    {form.desc.trim() && (
+                      <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 text-xs md:col-span-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="text-muted-foreground">
+                            Sugestão inteligente:{" "}
+                            <span className="font-semibold text-foreground">
+                              {smartExpenseSuggestion.category}
+                            </span>{" "}
+                            <span className="text-primary">
+                              {Math.round(smartExpenseSuggestion.confidence * 100)}%
+                            </span>
+                            <span className="block">{smartExpenseSuggestion.reason}</span>
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => updateForm("category", smartExpenseSuggestion.category)}
+                          >
+                            Aplicar categoria
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     <OptionSelectField
                       label="Categoria"
                       value={form.category}
