@@ -62,6 +62,7 @@ import {
   defaultCashBalance,
 } from "@/lib/cash-data";
 import {
+  bankMethodLabels,
   bankTransactionsKey,
   calculateBankInflows,
   calculateBankOutflows,
@@ -69,6 +70,7 @@ import {
   calculateScheduledBankOutflows,
   initialBankTransactions,
   type BankTransaction,
+  type BankTransactionStatus,
 } from "@/lib/bank-data";
 import type { Receivable } from "@/lib/receivables";
 import { classifyTransactionText } from "@/lib/transaction-intelligence";
@@ -87,11 +89,20 @@ const statusBadge = (status: string) => {
     "pago parcialmente": "bg-info/15 text-info",
     recebido: "bg-success/15 text-success",
     previsto: "bg-info/15 text-info",
+    realizado: "bg-success/15 text-success",
+    agendado: "bg-info/15 text-info",
+    cancelado: "bg-muted text-muted-foreground",
   };
   return map[status] ?? "bg-muted text-muted-foreground";
 };
 
 const statusLabel = (status: string) => (status === "parcial" ? "pago parcialmente" : status);
+
+const bankStatusLabels: Record<BankTransactionStatus, string> = {
+  realizado: "Realizado",
+  agendado: "Agendado",
+  cancelado: "Cancelado",
+};
 
 type Expense = (typeof initialExpenses)[number];
 type Collaborator = (typeof initialSellers)[number] & { role?: string; photoUrl?: string };
@@ -138,7 +149,7 @@ function Financial() {
     initialSellers,
   );
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
-  const [bankTransactions] = usePersistentState<BankTransaction[]>(
+  const [bankTransactions, setBankTransactions] = usePersistentState<BankTransaction[]>(
     bankTransactionsKey,
     initialBankTransactions,
   );
@@ -205,6 +216,26 @@ function Financial() {
         .includes(normalizedQuery),
     );
   }, [query, receivables]);
+  const filteredBankTransactions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return bankTransactions;
+
+    return bankTransactions.filter((transaction) =>
+      [
+        transaction.date,
+        transaction.description,
+        transaction.category,
+        transaction.status,
+        transaction.method,
+        transaction.counterparty,
+        transaction.document,
+        transaction.notes,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [bankTransactions, query]);
   const collaboratorsByName = useMemo(() => buildCollaboratorMap(collaborators), [collaborators]);
 
   const saleReceivables = useMemo(
@@ -219,6 +250,7 @@ function Financial() {
   const bankOutflows = calculateBankOutflows(bankTransactions);
   const scheduledBankInflows = calculateScheduledBankInflows(bankTransactions);
   const scheduledBankOutflows = calculateScheduledBankOutflows(bankTransactions);
+  const bankCashImpact = bankInflows - bankOutflows;
   const totalReceitas = calculateReceivedRevenue(sales, receivables) + bankInflows;
   const totalDespesas = calculatePaidExpenses(expenses) + bankOutflows;
   const currentCash = calculateCurrentCash(
@@ -349,6 +381,20 @@ function Financial() {
     toast.success(status === "recebido" ? "Receita marcada como recebida." : "Receita prevista.");
   };
 
+  const updateBankTransactionStatus = (id: string, status: BankTransactionStatus) => {
+    setBankTransactions((current) =>
+      current.map((transaction) =>
+        transaction.id === id ? { ...transaction, status } : transaction,
+      ),
+    );
+    toast.success(`Movimentação bancária marcada como ${bankStatusLabels[status].toLowerCase()}.`);
+  };
+
+  const removeBankTransaction = (id: string) => {
+    setBankTransactions((current) => current.filter((transaction) => transaction.id !== id));
+    toast.success("Movimentação bancária removida do financeiro e do banco.");
+  };
+
   const addCategory = () => {
     const category = window.prompt("Nome da nova categoria financeira");
     if (!category?.trim()) return;
@@ -382,6 +428,14 @@ function Financial() {
         sale.service,
         String(sale.value),
         sale.status,
+      ]),
+      ...bankTransactions.map((transaction) => [
+        transaction.type === "entrada" ? "Banco - entrada" : "Banco - saída",
+        transaction.date,
+        transaction.description,
+        transaction.category,
+        String(transaction.amount),
+        transaction.status,
       ]),
     ];
     const csv = rows
@@ -629,6 +683,7 @@ function Financial() {
               <TabsTrigger value="receitas">Receitas</TabsTrigger>
               <TabsTrigger value="previsivel">Receita previsível</TabsTrigger>
               <TabsTrigger value="caixa">Caixa</TabsTrigger>
+              <TabsTrigger value="banco">Banco/C6</TabsTrigger>
               <TabsTrigger value="categorias">Categorias</TabsTrigger>
             </TabsList>
             <div className="flex items-center gap-2">
@@ -921,6 +976,21 @@ function Financial() {
                 </Card>
                 <Card className="border-border/60 bg-background/40 p-4">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Impacto bancário
+                  </p>
+                  <p
+                    className={`mt-2 font-display text-2xl font-bold ${
+                      bankCashImpact >= 0 ? "text-success" : "text-destructive"
+                    }`}
+                  >
+                    {formatBRL(bankCashImpact)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Entradas C6 realizadas - saídas C6 realizadas.
+                  </p>
+                </Card>
+                <Card className="border-border/60 bg-background/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
                     Após receber
                   </p>
                   <p className="mt-2 font-display text-2xl font-bold text-success">
@@ -938,6 +1008,158 @@ function Financial() {
                   </p>
                 </Card>
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="banco" className="mt-0">
+            <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Card className="border-border/60 bg-background/40 p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Entradas realizadas
+                </p>
+                <p className="mt-2 font-display text-2xl font-bold text-success">
+                  {formatBRL(bankInflows)}
+                </p>
+              </Card>
+              <Card className="border-border/60 bg-background/40 p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Saídas realizadas
+                </p>
+                <p className="mt-2 font-display text-2xl font-bold text-destructive">
+                  {formatBRL(bankOutflows)}
+                </p>
+              </Card>
+              <Card className="border-border/60 bg-background/40 p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Entradas agendadas
+                </p>
+                <p className="mt-2 font-display text-2xl font-bold text-info">
+                  {formatBRL(scheduledBankInflows)}
+                </p>
+              </Card>
+              <Card className="border-border/60 bg-background/40 p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Saídas agendadas
+                </p>
+                <p className="mt-2 font-display text-2xl font-bold text-warning">
+                  {formatBRL(scheduledBankOutflows)}
+                </p>
+              </Card>
+            </div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Movimentações cadastradas na aba Banco C6. Realizadas entram no caixa; agendadas
+                entram em a receber ou a pagar; canceladas não afetam os totais.
+              </p>
+              <Badge variant="outline" className="border-border/60">
+                Saldo bancário no sistema: {formatBRL(bankCashImpact)}
+              </Badge>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border/60">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead>Data</TableHead>
+                    <TableHead>Movimentação</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Método</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredBankTransactions.map((transaction) => (
+                    <TableRow key={transaction.id} className="hover:bg-muted/30">
+                      <TableCell className="text-muted-foreground">
+                        {new Date(`${transaction.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">{transaction.description}</div>
+                        {transaction.counterparty && (
+                          <div className="text-xs text-muted-foreground">
+                            {transaction.counterparty}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            transaction.type === "entrada"
+                              ? "border-success/30 text-success"
+                              : "border-destructive/30 text-destructive"
+                          }
+                        >
+                          {transaction.type === "entrada" ? "Entrada" : "Saída"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {bankMethodLabels[transaction.method]}
+                      </TableCell>
+                      <TableCell>{transaction.category}</TableCell>
+                      <TableCell
+                        className={`text-right font-medium tabular-nums ${
+                          transaction.type === "entrada" ? "text-success" : "text-destructive"
+                        }`}
+                      >
+                        {transaction.type === "entrada" ? "+" : "-"}
+                        {formatBRL(transaction.amount)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={`${statusBadge(transaction.status)} hover:${statusBadge(transaction.status)}`}
+                        >
+                          {bankStatusLabels[transaction.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateBankTransactionStatus(transaction.id, "realizado")}
+                          >
+                            Realizado
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateBankTransactionStatus(transaction.id, "agendado")}
+                          >
+                            Agendado
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateBankTransactionStatus(transaction.id, "cancelado")}
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeBankTransaction(transaction.id)}
+                          >
+                            Excluir
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredBankTransactions.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={8}
+                        className="py-8 text-center text-sm text-muted-foreground"
+                      >
+                        Nenhuma movimentação bancária encontrada.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </div>
           </TabsContent>
 
