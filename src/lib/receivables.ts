@@ -1,3 +1,5 @@
+import { addLocalDays, addLocalMonths, toLocalISODate } from "@/lib/date-utils";
+
 export type PaymentMethod = "avista" | "prazo_pix" | "credito";
 
 export type Receivable = {
@@ -38,19 +40,15 @@ export function formatCurrencyInput(value: number) {
 }
 
 function addDays(date: Date, days: number) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
+  return addLocalDays(date, days);
 }
 
 function addMonths(date: Date, months: number) {
-  const nextDate = new Date(date);
-  nextDate.setMonth(nextDate.getMonth() + months);
-  return nextDate;
+  return addLocalMonths(date, months);
 }
 
 function toISODate(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return toLocalISODate(date);
 }
 
 export function createReceivables({

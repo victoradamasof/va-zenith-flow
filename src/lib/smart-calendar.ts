@@ -1,5 +1,6 @@
 import type { Receivable } from "@/lib/receivables";
 import { bankMethodLabels, type BankTransaction } from "@/lib/bank-data";
+import { parseLocalDate, toLocalISODate } from "@/lib/date-utils";
 
 export type SmartCalendarEvent = {
   id: string;
@@ -18,7 +19,7 @@ export function getToday() {
 }
 
 export function toISODate(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return toLocalISODate(date);
 }
 
 function pad(value: number) {
@@ -36,9 +37,9 @@ function buildClampedDate(year: number, month: number, day: number) {
 }
 
 export function daysUntil(date: Date, today = getToday()) {
-  const target = new Date(date);
+  const target = parseLocalDate(date);
   target.setHours(12, 0, 0, 0);
-  const base = new Date(today);
+  const base = parseLocalDate(today);
   base.setHours(12, 0, 0, 0);
   return Math.ceil((target.getTime() - base.getTime()) / 86400000);
 }

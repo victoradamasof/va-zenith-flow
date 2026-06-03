@@ -61,6 +61,7 @@ import {
   cashBalanceKey,
   defaultCashBalance,
 } from "@/lib/cash-data";
+import { formatLocalDateBR, todayLocalISODate } from "@/lib/date-utils";
 import {
   bankMethodLabels,
   bankTransactionsKey,
@@ -108,7 +109,7 @@ type Expense = (typeof initialExpenses)[number];
 type Collaborator = (typeof initialSellers)[number] & { role?: string; photoUrl?: string };
 
 const emptyExpenseForm = {
-  date: new Date().toISOString().slice(0, 10),
+  date: todayLocalISODate(),
   desc: "",
   category: "Marketing",
   value: "",
@@ -443,7 +444,7 @@ function Financial() {
       ["Tipo", "Data", "Descrição", "Categoria/Serviço", "Valor", "Status"],
       [
         "Caixa",
-        new Date().toISOString().slice(0, 10),
+        todayLocalISODate(),
         "Caixa atual",
         "Operacional",
         String(currentCash),
@@ -769,7 +770,7 @@ function Financial() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {new Date(expense.date).toLocaleDateString("pt-BR")}
+                        {formatLocalDateBR(expense.date)}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {expense.recurring ? "Recorrente" : "Avulsa"}
@@ -852,7 +853,7 @@ function Financial() {
                       <TableCell className="font-medium">{sale.client}</TableCell>
                       <TableCell className="text-muted-foreground">{sale.service}</TableCell>
                       <TableCell className="text-muted-foreground">
-                        {new Date(sale.date).toLocaleDateString("pt-BR")}
+                        {formatLocalDateBR(sale.date)}
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums text-success">
                         {formatBRL(sale.value)}
@@ -917,7 +918,7 @@ function Financial() {
                     return (
                       <TableRow key={item.id} className="hover:bg-muted/30">
                         <TableCell className="text-muted-foreground">
-                          {new Date(`${item.dueDate}T12:00:00`).toLocaleDateString("pt-BR")}
+                          {formatLocalDateBR(item.dueDate)}
                         </TableCell>
                         <TableCell className="font-medium">{item.client}</TableCell>
                         <TableCell>{item.service}</TableCell>
@@ -1109,7 +1110,7 @@ function Financial() {
                   {filteredBankTransactions.map((transaction) => (
                     <TableRow key={transaction.id} className="hover:bg-muted/30">
                       <TableCell className="text-muted-foreground">
-                        {new Date(`${transaction.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                        {formatLocalDateBR(transaction.date)}
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">{transaction.description}</div>

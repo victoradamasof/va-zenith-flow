@@ -67,6 +67,7 @@ import {
   paymentMethods,
   type PaymentMethod,
 } from "@/lib/receivables";
+import { formatLocalDateBR, toLocalISODate } from "@/lib/date-utils";
 
 export const Route = createFileRoute("/_app/clients")({
   component: Clients,
@@ -237,7 +238,7 @@ function Clients() {
         email: form.email.trim() || "sem-email@vaconsultoria.com",
         address: form.address.trim() || "Não informado",
         service,
-        entryDate: saleDate.toISOString().slice(0, 10),
+        entryDate: toLocalISODate(saleDate),
         origin,
         seller,
         paymentMethod,
@@ -644,7 +645,7 @@ function Clients() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {new Date(client.entryDate).toLocaleDateString("pt-BR")}
+                      {formatLocalDateBR(client.entryDate)}
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
                       {formatBRL(client.total)}
@@ -795,7 +796,7 @@ function PaymentPreview({
               <span className="font-medium tabular-nums">{formatBRL(item.amount)}</span>
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {new Date(`${item.dueDate}T12:00:00`).toLocaleDateString("pt-BR")} ·{" "}
+              {formatLocalDateBR(item.dueDate)} ·{" "}
               {item.status === "recebido" ? "receita recebida" : "receita prevista"}
             </p>
           </div>

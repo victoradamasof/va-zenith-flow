@@ -42,6 +42,7 @@ import {
   isBankOutflow,
   type BankTransaction,
 } from "@/lib/bank-data";
+import { formatLocalDateBR, parseLocalDate } from "@/lib/date-utils";
 export const Route = createFileRoute("/_app/calendar")({
   component: SmartCalendar,
   head: () => ({ meta: [{ title: "Calendário Inteligente - VA" }] }),
@@ -108,12 +109,12 @@ function SmartCalendar() {
 
   const selectedEvents = events.filter((event) => event.date === selectedDate);
   const currentMonthEvents = events.filter((event) => {
-    const date = new Date(`${event.date}T12:00:00`);
+    const date = parseLocalDate(event.date);
     return date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
   });
   const upcomingEvents = events
     .filter((event) => {
-      const distance = daysUntil(new Date(`${event.date}T12:00:00`), today);
+      const distance = daysUntil(parseLocalDate(event.date), today);
       return distance >= 0 && distance <= 30;
     })
     .slice(0, 8);
@@ -235,7 +236,7 @@ function SmartCalendar() {
         <Card className="border-border/60 bg-card/60 p-5">
           <div className="mb-4">
             <h3 className="font-display text-base font-semibold">
-              {new Date(`${selectedDate}T12:00:00`).toLocaleDateString("pt-BR", {
+              {formatLocalDateBR(selectedDate, {
                 day: "2-digit",
                 month: "long",
               })}
@@ -425,7 +426,7 @@ function EventCard({
           <p className="text-xs opacity-80">{event.subtitle}</p>
           {!compact && (
             <p className="mt-1 text-[11px] opacity-75">
-              {new Date(`${event.date}T12:00:00`).toLocaleDateString("pt-BR")} · {event.status}
+              {formatLocalDateBR(event.date)} · {event.status}
             </p>
           )}
         </div>

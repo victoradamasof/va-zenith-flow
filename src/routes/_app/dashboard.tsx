@@ -68,6 +68,7 @@ import {
   isBankTransactionRealized,
   type BankTransaction,
 } from "@/lib/bank-data";
+import { formatLocalDateBR } from "@/lib/date-utils";
 import { formatGoalDeadline } from "@/lib/smart-calendar";
 import { generateSystemAlerts } from "@/lib/system-alerts";
 
@@ -644,7 +645,7 @@ function buildMonthlyData(
   >();
 
   for (const sale of sales) {
-    const month = new Date(sale.date).toLocaleDateString("pt-BR", { month: "short" });
+    const month = formatLocalDateBR(sale.date, { month: "short" });
     const current = months.get(month) ?? { month, receita: 0, despesa: 0, lucro: 0 };
     current.receita += sale.value;
     current.lucro = current.receita - current.despesa;
@@ -652,7 +653,7 @@ function buildMonthlyData(
   }
 
   for (const expense of expenses) {
-    const month = new Date(expense.date).toLocaleDateString("pt-BR", { month: "short" });
+    const month = formatLocalDateBR(expense.date, { month: "short" });
     const current = months.get(month) ?? { month, receita: 0, despesa: 0, lucro: 0 };
     current.despesa += expense.value;
     current.lucro = current.receita - current.despesa;
@@ -660,7 +661,7 @@ function buildMonthlyData(
   }
 
   for (const transaction of bankTransactions.filter(isBankTransactionRealized)) {
-    const month = new Date(transaction.date).toLocaleDateString("pt-BR", { month: "short" });
+    const month = formatLocalDateBR(transaction.date, { month: "short" });
     const current = months.get(month) ?? { month, receita: 0, despesa: 0, lucro: 0 };
     if (isBankInflow(transaction)) {
       current.receita += transaction.amount;
@@ -679,7 +680,7 @@ function buildDailyData(sales: typeof initialSales) {
   const days = new Map<string, { day: string; valor: number }>();
 
   for (const sale of sales) {
-    const day = new Date(sale.date).toLocaleDateString("pt-BR", {
+    const day = formatLocalDateBR(sale.date, {
       day: "2-digit",
       month: "2-digit",
     });

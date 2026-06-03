@@ -4,6 +4,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toLocalISODate } from "@/lib/date-utils";
 
 type DateFormat = "iso" | "br";
 
@@ -12,7 +13,7 @@ function pad(value: number) {
 }
 
 function toISO(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return toLocalISODate(date);
 }
 
 function toBR(date: Date) {

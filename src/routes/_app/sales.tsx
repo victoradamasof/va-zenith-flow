@@ -68,6 +68,7 @@ import {
   type PaymentMethod,
 } from "@/lib/receivables";
 import { getAuthSession, type AuthSession } from "@/lib/auth";
+import { formatLocalDateBR, parseLocalDate, todayLocalISODate } from "@/lib/date-utils";
 import { isAdmin, isOwnedBySession } from "@/lib/permissions";
 
 export const Route = createFileRoute("/_app/sales")({
@@ -107,7 +108,7 @@ type Client = (typeof initialClients)[number] & {
 
 const emptySaleForm = {
   id: "",
-  date: new Date().toISOString().slice(0, 10),
+  date: todayLocalISODate(),
   client: "",
   service: "",
   value: "0",
@@ -221,7 +222,7 @@ function Sales() {
       total: currentSaleValue,
       method: paymentMethod,
       installments: installmentCount,
-      saleDate: new Date(`${form.date}T12:00:00`),
+      saleDate: parseLocalDate(form.date),
     });
     return schedule.map((item) => `${item.label}: ${formatBRL(item.amount)}`).join(" | ");
   }, [
@@ -362,7 +363,7 @@ function Sales() {
       return;
     }
 
-    const saleDate = new Date(`${form.date}T12:00:00`);
+    const saleDate = parseLocalDate(form.date);
     const service = form.service.trim() || serviceOptions[0]?.name || initialServices[0].name;
     const seller = canManageAllSales
       ? form.seller.trim() || collaboratorOptions[0]?.name || sellers[0].name
@@ -781,7 +782,7 @@ function Sales() {
                 return (
                   <TableRow key={sale.id} className="hover:bg-muted/30">
                     <TableCell className="text-muted-foreground">
-                      {new Date(sale.date).toLocaleDateString("pt-BR")}
+                      {formatLocalDateBR(sale.date)}
                     </TableCell>
                     <TableCell className="font-medium">{sale.client}</TableCell>
                     <TableCell>{sale.service}</TableCell>

@@ -54,6 +54,7 @@ import {
   paymentMethods,
   type PaymentMethod,
 } from "@/lib/receivables";
+import { formatLocalDateBR, todayLocalISODate } from "@/lib/date-utils";
 
 export const Route = createFileRoute("/_app/contracts")({
   component: Contracts,
@@ -182,7 +183,7 @@ const emptyForm: ContractForm = {
   seller: "",
   sellerRole: "Consultor comercial",
   sellerDocument: "",
-  contractDate: new Date().toISOString().slice(0, 10),
+  contractDate: todayLocalISODate(),
   local: "",
   tapValue: "",
   feeValue: "",
@@ -1395,7 +1396,7 @@ function isLegacyRatingService(serviceName = "") {
 
 export function formatLongDate(date: string) {
   if (!date) return "[Data]";
-  return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", {
+  return formatLocalDateBR(date, {
     day: "2-digit",
     month: "long",
     year: "numeric",

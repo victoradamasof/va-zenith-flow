@@ -50,6 +50,7 @@ import {
 } from "@/lib/bank-data";
 import { parseCurrencyInput } from "@/lib/receivables";
 import { classifyTransactionText } from "@/lib/transaction-intelligence";
+import { todayLocalISODate } from "@/lib/date-utils";
 import {
   AlertTriangle,
   Banknote,
@@ -95,7 +96,7 @@ const statusLabels: Record<BankTransactionStatus, string> = {
 };
 
 const emptyTransactionForm = {
-  date: new Date().toISOString().slice(0, 10),
+  date: todayLocalISODate(),
   description: "",
   type: "saida" as BankTransactionType,
   method: "pix" as BankTransactionMethod,
