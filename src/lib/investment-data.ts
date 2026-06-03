@@ -1,6 +1,7 @@
 export type InvestmentItem = {
   id: string;
   item: string;
+  description?: string;
   category: string;
   quantity: number;
   unitValue: number;
@@ -98,6 +99,7 @@ export function normalizeInvestmentByStatus(item: Partial<InvestmentItem>): Inve
       String(item.item || "Investimento").trim() === "Vencedor"
         ? "Victor"
         : normalizeInvestmentText(item.item, "Investimento"),
+    description: String(item.description || "").trim(),
     category: normalizeInvestmentText(item.category, "Outros"),
     quantity,
     unitValue,

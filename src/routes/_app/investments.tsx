@@ -11,6 +11,7 @@ import { PremiumActionButton } from "@/components/ui/premium-action-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -62,6 +63,7 @@ export const Route = createFileRoute("/_app/investments")({
 const emptyForm = {
   id: "",
   item: "",
+  description: "",
   category: "",
   quantity: "1",
   unitValue: "",
@@ -112,7 +114,10 @@ function Investments() {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return normalizedItems;
     return normalizedItems.filter((item) =>
-      [item.item, item.category, item.status].join(" ").toLowerCase().includes(normalized),
+      [item.item, item.description, item.category, item.status]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized),
     );
   }, [normalizedItems, query]);
 
@@ -144,6 +149,7 @@ function Investments() {
     setForm({
       id: normalizedItem.id,
       item: normalizedItem.item,
+      description: normalizedItem.description ?? "",
       category: normalizedItem.category,
       quantity: String(normalizedItem.quantity),
       unitValue: formatCurrencyInput(normalizedItem.unitValue),
@@ -179,6 +185,7 @@ function Investments() {
     const investment = normalizeInvestmentByStatus({
       id: form.id || `inv-${Date.now()}`,
       item: form.item.trim(),
+      description: form.description.trim(),
       category: form.category.trim() || "Outros",
       quantity,
       unitValue,
@@ -223,9 +230,20 @@ function Investments() {
 
   const exportCsv = () => {
     const rows = [
-      ["Item", "Categoria", "Qtd", "Valor unitario", "Planejado", "Ja gasto", "Saldo", "Status"],
+      [
+        "Item",
+        "Descrição",
+        "Categoria",
+        "Qtd",
+        "Valor unitário",
+        "Planejado",
+        "Já gasto",
+        "Saldo",
+        "Status",
+      ],
       ...normalizedItems.map((item) => [
         item.item,
+        item.description ?? "",
         item.category,
         String(item.quantity),
         String(item.unitValue),
@@ -347,6 +365,15 @@ function Investments() {
                       value={form.category}
                       onChange={(v) => updateForm("category", v)}
                     />
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Descrição</Label>
+                      <Textarea
+                        value={form.description}
+                        onChange={(event) => updateForm("description", event.target.value)}
+                        placeholder="Ex: unidade, local, fornecedor, observações do pagamento ou detalhes do item"
+                        rows={3}
+                      />
+                    </div>
                     <InvestmentField
                       label="Qtd"
                       type="number"
@@ -494,7 +521,14 @@ function Investments() {
             <TableBody>
               {filteredItems.map((item) => (
                 <TableRow key={item.id} className="hover:bg-muted/30">
-                  <TableCell className="font-medium">{item.item}</TableCell>
+                  <TableCell>
+                    <div className="font-medium">{item.item}</div>
+                    {item.description && (
+                      <div className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
+                        {item.description}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>{item.category}</TableCell>
                   <TableCell className="text-right tabular-nums">{item.quantity}</TableCell>
                   <TableCell className="text-right tabular-nums">
