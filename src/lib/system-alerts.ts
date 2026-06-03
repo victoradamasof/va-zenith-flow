@@ -1,5 +1,12 @@
 import { calculateCurrentCash } from "@/lib/cash-data";
 import { formatBRL } from "@/lib/mock-data";
+import {
+  calculateScheduledBankInflows,
+  calculateScheduledBankOutflows,
+  isBankInflow,
+  isBankOutflow,
+  type BankTransaction,
+} from "@/lib/bank-data";
 import type { Receivable } from "@/lib/receivables";
 
 type AlertType = "danger" | "warning" | "info" | "success";
@@ -55,6 +62,7 @@ export type AlertContext = {
   goals: Goal[];
   receivables: Receivable[];
   cashBase: number;
+  bankTransactions?: BankTransaction[];
   today?: Date;
 };
 
@@ -67,17 +75,26 @@ export function generateSystemAlerts({
   goals,
   receivables,
   cashBase,
+  bankTransactions = [],
   today = new Date(),
 }: AlertContext) {
   const alerts: SystemAlert[] = [];
   const todayStart = startOfDay(today);
-  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables);
+  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables, bankTransactions);
   const openExpenses = expenses.filter((expense) => expense.status !== "pago");
   const pendingReceivables = receivables.filter((receivable) => receivable.status === "previsto");
+  const scheduledBankOutflows = bankTransactions.filter(
+    (transaction) => transaction.status === "agendado" && isBankOutflow(transaction),
+  );
+  const scheduledBankInflows = bankTransactions.filter(
+    (transaction) => transaction.status === "agendado" && isBankInflow(transaction),
+  );
   const projectedBalance =
     currentCash +
     pendingReceivables.reduce((sum, receivable) => sum + receivable.amount, 0) -
-    openExpenses.reduce((sum, expense) => sum + expense.value, 0);
+    openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
+    calculateScheduledBankInflows(bankTransactions) -
+    calculateScheduledBankOutflows(bankTransactions);
 
   for (const expense of openExpenses) {
     const dueDate = parseDate(expense.date, todayStart);
@@ -125,6 +142,47 @@ export function generateSystemAlerts({
         desc: `${receivable.client} - ${formatBRL(receivable.amount)} previsto ${formatRelativeDays(days)}`,
         time: formatRelativeDays(days),
         target: "Receita previsível",
+      });
+    }
+  }
+
+  for (const transaction of scheduledBankOutflows) {
+    const dueDate = parseDate(transaction.date, todayStart);
+    const days = diffInDays(dueDate, todayStart);
+
+    if (days < 0) {
+      alerts.push({
+        id: `bank-overdue-${transaction.id}`,
+        type: "danger",
+        title: "Pagamento bancario vencido",
+        desc: `${transaction.description} - ${formatBRL(transaction.amount)} no C6 PJ venceu ${formatRelativeDays(days)}`,
+        time: formatRelativeDays(days),
+        target: "Banco C6 PJ",
+      });
+    } else if (days <= 3) {
+      alerts.push({
+        id: `bank-due-${transaction.id}`,
+        type: "warning",
+        title: "Pagamento bancario agendado",
+        desc: `${transaction.description} - ${formatBRL(transaction.amount)} no C6 PJ vence ${formatRelativeDays(days)}`,
+        time: formatRelativeDays(days),
+        target: "Banco C6 PJ",
+      });
+    }
+  }
+
+  for (const transaction of scheduledBankInflows) {
+    const dueDate = parseDate(transaction.date, todayStart);
+    const days = diffInDays(dueDate, todayStart);
+
+    if (days <= 3 && days >= 0) {
+      alerts.push({
+        id: `bank-inflow-${transaction.id}`,
+        type: "info",
+        title: "Entrada bancaria prevista",
+        desc: `${transaction.description} - ${formatBRL(transaction.amount)} previsto no C6 PJ ${formatRelativeDays(days)}`,
+        time: formatRelativeDays(days),
+        target: "Banco C6 PJ",
       });
     }
   }
@@ -186,14 +244,19 @@ export function generateSystemAlerts({
       time: "agora",
       target: "Fluxo de Caixa",
     });
-  } else if (currentCash < openExpenses.reduce((sum, expense) => sum + expense.value, 0)) {
+  } else if (
+    currentCash <
+    openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
+      calculateScheduledBankOutflows(bankTransactions)
+  ) {
     alerts.push({
       id: "cashflow-low-coverage",
       type: "warning",
       title: "Caixa abaixo dos compromissos",
       desc: `${formatBRL(currentCash)} em caixa para ${formatBRL(
-        openExpenses.reduce((sum, expense) => sum + expense.value, 0),
-      )} em despesas abertas`,
+        openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
+          calculateScheduledBankOutflows(bankTransactions),
+      )} em despesas e pagamentos bancarios abertos`,
       time: "agora",
       target: "Fluxo de Caixa",
     });

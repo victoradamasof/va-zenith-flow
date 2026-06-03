@@ -16,6 +16,7 @@ import {
   Landmark,
   Trophy,
   FileText,
+  Banknote,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -47,6 +48,7 @@ const groups = [
     label: "Financeiro",
     items: [
       { title: "Gestão Financeira", url: "/financial", icon: Wallet },
+      { title: "Banco C6 PJ", url: "/bank", icon: Banknote },
       { title: "Fluxo de Caixa", url: "/cashflow", icon: TrendingUp },
       { title: "Investimentos", url: "/investments", icon: Landmark },
     ],

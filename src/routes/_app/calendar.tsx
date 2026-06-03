@@ -35,6 +35,13 @@ import {
   toISODate,
   type SmartCalendarEvent,
 } from "@/lib/smart-calendar";
+import {
+  bankTransactionsKey,
+  initialBankTransactions,
+  isBankInflow,
+  isBankOutflow,
+  type BankTransaction,
+} from "@/lib/bank-data";
 export const Route = createFileRoute("/_app/calendar")({
   component: SmartCalendar,
   head: () => ({ meta: [{ title: "Calendário Inteligente - VA" }] }),
@@ -49,6 +56,7 @@ const eventStyle: Record<SmartCalendarEvent["type"], string> = {
   goal: "bg-primary/15 text-primary border-primary/25",
   sale: "bg-info/15 text-info border-info/25",
   investment: "bg-warning/15 text-warning border-warning/25",
+  bank: "bg-primary/15 text-primary border-primary/25",
 };
 
 function SmartCalendar() {
@@ -63,6 +71,10 @@ function SmartCalendar() {
   const [investments] = usePersistentState<InvestmentItem[]>(
     "va-manager:investments",
     investmentItems,
+  );
+  const [bankTransactions] = usePersistentState<BankTransaction[]>(
+    bankTransactionsKey,
+    initialBankTransactions,
   );
   const [investmentContribution] = usePersistentState(
     investmentContributionKey,
@@ -89,8 +101,9 @@ function SmartCalendar() {
         ),
         receivables,
         sales,
+        bankTransactions,
       }),
-    [expenses, syncedGoals, investments, investmentContribution, receivables, sales],
+    [expenses, syncedGoals, investments, investmentContribution, receivables, sales, bankTransactions],
   );
 
   const selectedEvents = events.filter((event) => event.date === selectedDate);
@@ -107,8 +120,18 @@ function SmartCalendar() {
 
   const openPayments = expenses.filter((expense) => expense.status !== "pago");
   const openReceivables = receivables.filter((receivable) => receivable.status === "previsto");
-  const payableAmount = openPayments.reduce((sum, expense) => sum + expense.value, 0);
-  const receivableAmount = openReceivables.reduce((sum, receivable) => sum + receivable.amount, 0);
+  const openBankPayments = bankTransactions.filter(
+    (transaction) => transaction.status === "agendado" && isBankOutflow(transaction),
+  );
+  const openBankReceivables = bankTransactions.filter(
+    (transaction) => transaction.status === "agendado" && isBankInflow(transaction),
+  );
+  const payableAmount =
+    openPayments.reduce((sum, expense) => sum + expense.value, 0) +
+    openBankPayments.reduce((sum, transaction) => sum + transaction.amount, 0);
+  const receivableAmount =
+    openReceivables.reduce((sum, receivable) => sum + receivable.amount, 0) +
+    openBankReceivables.reduce((sum, transaction) => sum + transaction.amount, 0);
 
   const goalInsights = syncedGoals.map((goal) => {
     const deadline = parseGoalDeadline(goal.deadline, today);
@@ -177,14 +200,14 @@ function SmartCalendar() {
           value={formatBRL(payableAmount)}
           icon={AlertTriangle}
           accent="destructive"
-          hint={`${openPayments.length} vencimentos`}
+          hint={`${openPayments.length + openBankPayments.length} vencimentos`}
         />
         <KpiCard
           label="Recebíveis previstos"
           value={formatBRL(receivableAmount)}
           icon={Wallet}
           accent="success"
-          hint={`${openReceivables.length} parcelas`}
+          hint={`${openReceivables.length + openBankReceivables.length} parcelas`}
         />
       </div>
 
@@ -434,6 +457,7 @@ function dotClass(type: SmartCalendarEvent["type"]) {
   if (type === "receivable") return "bg-success";
   if (type === "goal") return "bg-primary";
   if (type === "investment") return "bg-warning";
+  if (type === "bank") return "bg-primary";
   return "bg-info";
 }
 

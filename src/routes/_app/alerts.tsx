@@ -17,6 +17,11 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { applyGoalMetrics } from "@/lib/goal-metrics";
 import { cashBalanceKey, defaultCashBalance } from "@/lib/cash-data";
+import {
+  bankTransactionsKey,
+  initialBankTransactions,
+  type BankTransaction,
+} from "@/lib/bank-data";
 import { generateSystemAlerts, type SystemAlert } from "@/lib/system-alerts";
 
 export const Route = createFileRoute("/_app/alerts")({
@@ -43,6 +48,10 @@ function Alerts() {
   const [clients] = usePersistentState("va-manager:clients", initialClients);
   const [goals] = usePersistentState("va-manager:goals", initialGoals);
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
+  const [bankTransactions] = usePersistentState<BankTransaction[]>(
+    bankTransactionsKey,
+    initialBankTransactions,
+  );
   const [receivables] = useSyncedReceivables({ sales });
   const [readIds, setReadIds] = usePersistentState<string[]>("va-manager:read-alerts", []);
   const [query, setQuery] = useState("");
@@ -56,9 +65,10 @@ function Alerts() {
       goals: syncedGoals,
       receivables,
       cashBase,
+      bankTransactions,
     });
     return generated.map((alert) => ({ ...alert, read: readIds.includes(alert.id) }));
-  }, [cashBase, clients, expenses, goals, readIds, receivables, sales]);
+  }, [bankTransactions, cashBase, clients, expenses, goals, readIds, receivables, sales]);
 
   const filteredAlerts = useMemo(() => {
     const q = query.trim().toLowerCase();

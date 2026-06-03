@@ -15,6 +15,12 @@ import {
   investmentItems,
 } from "@/lib/investment-data";
 import { cashBalanceKey, defaultCashBalance } from "@/lib/cash-data";
+import {
+  bankConnectionKey,
+  bankTransactionsKey,
+  defaultBankConnection,
+  initialBankTransactions,
+} from "@/lib/bank-data";
 
 export const dataKeys = [
   "va-manager:sales",
@@ -28,6 +34,8 @@ export const dataKeys = [
   "va-manager:receivables",
   "va-manager:expense-categories",
   "va-manager:investments",
+  bankTransactionsKey,
+  bankConnectionKey,
   cashBalanceKey,
   investmentContributionKey,
 ] as const;
@@ -46,6 +54,8 @@ export const emptyData: Record<DataKey, unknown> = {
   "va-manager:receivables": [],
   "va-manager:expense-categories": [],
   "va-manager:investments": [],
+  [bankTransactionsKey]: initialBankTransactions,
+  [bankConnectionKey]: defaultBankConnection,
   [cashBalanceKey]: defaultCashBalance,
   [investmentContributionKey]: defaultInvestmentContribution,
 };
@@ -62,6 +72,8 @@ export const demoData: Partial<Record<DataKey, unknown>> = {
   "va-manager:receivables": [],
   "va-manager:expense-categories": expenseCategories,
   "va-manager:investments": investmentItems,
+  [bankTransactionsKey]: initialBankTransactions,
+  [bankConnectionKey]: defaultBankConnection,
   [cashBalanceKey]: defaultCashBalance,
   [investmentContributionKey]: defaultInvestmentContribution,
 };

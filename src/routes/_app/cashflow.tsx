@@ -21,6 +21,14 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { filterSaleReceivables } from "@/lib/data-sync";
 import { calculateCurrentCash, cashBalanceKey, defaultCashBalance } from "@/lib/cash-data";
+import {
+  bankTransactionsKey,
+  initialBankTransactions,
+  isBankInflow,
+  isBankOutflow,
+  isBankTransactionRealized,
+  type BankTransaction,
+} from "@/lib/bank-data";
 import { getToday, toISODate } from "@/lib/smart-calendar";
 
 export const Route = createFileRoute("/_app/cashflow")({
@@ -43,6 +51,10 @@ function CashFlow() {
   const [sales] = usePersistentState("va-manager:sales", initialSales);
   const [expenses] = usePersistentState("va-manager:expenses", initialExpenses);
   const [receivables] = useSyncedReceivables({ sales });
+  const [bankTransactions] = usePersistentState<BankTransaction[]>(
+    bankTransactionsKey,
+    initialBankTransactions,
+  );
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
 
   const days = periods[period];
@@ -55,6 +67,9 @@ function CashFlow() {
 
   const filteredSales = sales.filter((sale) => parseLocalDate(sale.date) >= start);
   const filteredExpenses = expenses.filter((expense) => parseLocalDate(expense.date) >= start);
+  const filteredBankTransactions = bankTransactions.filter(
+    (transaction) => parseLocalDate(transaction.date) >= start,
+  );
   const filteredReceivables = receivables.filter(
     (receivable) => parseLocalDate(receivable.dueDate) >= start,
   );
@@ -81,19 +96,37 @@ function CashFlow() {
     (receivable) => receivable.status === "previsto",
   );
   const pendingExpensesInPeriod = filteredExpenses.filter((expense) => !isPaid(expense.status));
+  const realizedBankInflows = filteredBankTransactions.filter(
+    (transaction) => isBankTransactionRealized(transaction) && isBankInflow(transaction),
+  );
+  const realizedBankOutflows = filteredBankTransactions.filter(
+    (transaction) => isBankTransactionRealized(transaction) && isBankOutflow(transaction),
+  );
+  const scheduledBankInflows = filteredBankTransactions.filter(
+    (transaction) => transaction.status === "agendado" && isBankInflow(transaction),
+  );
+  const scheduledBankOutflows = filteredBankTransactions.filter(
+    (transaction) => transaction.status === "agendado" && isBankOutflow(transaction),
+  );
 
   const entradas =
     paidSalesInPeriod.reduce((sum, sale) => sum + sale.value, 0) +
-    receivedInPeriod.reduce((sum, receivable) => sum + receivable.amount, 0);
-  const saidas = paidExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0);
-  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables);
+    receivedInPeriod.reduce((sum, receivable) => sum + receivable.amount, 0) +
+    realizedBankInflows.reduce((sum, transaction) => sum + transaction.amount, 0);
+  const saidas =
+    paidExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0) +
+    realizedBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0);
+  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables, bankTransactions);
   const saldoInicial = currentCash - entradas + saidas;
   const saldoFinal = saldoInicial + entradas - saidas;
 
   const entradasPrevistas =
     pendingSalesInPeriod.reduce((sum, sale) => sum + sale.value, 0) +
-    pendingReceivablesInPeriod.reduce((sum, receivable) => sum + receivable.amount, 0);
-  const saidasPrevistas = pendingExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0);
+    pendingReceivablesInPeriod.reduce((sum, receivable) => sum + receivable.amount, 0) +
+    scheduledBankInflows.reduce((sum, transaction) => sum + transaction.amount, 0);
+  const saidasPrevistas =
+    pendingExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0) +
+    scheduledBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0);
   const saldoProjetado = saldoFinal + entradasPrevistas - saidasPrevistas;
   const safeMinimum = Math.max(3000, Math.round(Math.max(currentCash, 1) * 0.2));
 
@@ -101,8 +134,13 @@ function CashFlow() {
     0,
     ...paidSalesInPeriod.map((sale) => sale.value),
     ...receivedInPeriod.map((receivable) => receivable.amount),
+    ...realizedBankInflows.map((transaction) => transaction.amount),
   );
-  const biggestOutflow = Math.max(0, ...paidExpensesInPeriod.map((expense) => expense.value));
+  const biggestOutflow = Math.max(
+    0,
+    ...paidExpensesInPeriod.map((expense) => expense.value),
+    ...realizedBankOutflows.map((transaction) => transaction.amount),
+  );
 
   const chartData = useMemo(() => {
     return Array.from({ length: Math.min(days, 30) }, (_, index) => {
@@ -132,7 +170,20 @@ function CashFlow() {
             isPaid(expense.status) && expense.date <= key && parseLocalDate(expense.date) >= start,
         )
         .reduce((sum, expense) => sum + expense.value, 0);
-      const saldo = saldoInicial + realizedSales + realizedReceivables - realizedExpenses;
+      const realizedBank = bankTransactions
+        .filter(
+          (transaction) =>
+            isBankTransactionRealized(transaction) &&
+            transaction.date <= key &&
+            parseLocalDate(transaction.date) >= start,
+        )
+        .reduce(
+          (sum, transaction) =>
+            sum + (isBankInflow(transaction) ? transaction.amount : -transaction.amount),
+          0,
+        );
+      const saldo =
+        saldoInicial + realizedSales + realizedReceivables + realizedBank - realizedExpenses;
 
       const projectedSales = sales
         .filter(
@@ -157,6 +208,18 @@ function CashFlow() {
             !isPaid(expense.status) && expense.date <= key && parseLocalDate(expense.date) >= start,
         )
         .reduce((sum, expense) => sum + expense.value, 0);
+      const projectedBank = bankTransactions
+        .filter(
+          (transaction) =>
+            transaction.status === "agendado" &&
+            transaction.date <= key &&
+            parseLocalDate(transaction.date) >= start,
+        )
+        .reduce(
+          (sum, transaction) =>
+            sum + (isBankInflow(transaction) ? transaction.amount : -transaction.amount),
+          0,
+        );
       return {
         day: date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
         saldo,
@@ -169,14 +232,40 @@ function CashFlow() {
             .reduce((sum, sale) => sum + sale.value, 0) +
           receivables
             .filter((receivable) => receivable.status === "recebido" && receivable.dueDate === key)
-            .reduce((sum, receivable) => sum + receivable.amount, 0),
-        saidas: expenses
-          .filter((expense) => isPaid(expense.status) && expense.date === key)
-          .reduce((sum, expense) => sum + expense.value, 0),
-        projecao: saldo + projectedSales + projectedReceivables - projectedExpenses,
+            .reduce((sum, receivable) => sum + receivable.amount, 0) +
+          bankTransactions
+            .filter(
+              (transaction) =>
+                isBankTransactionRealized(transaction) &&
+                isBankInflow(transaction) &&
+                transaction.date === key,
+            )
+            .reduce((sum, transaction) => sum + transaction.amount, 0),
+        saidas:
+          expenses
+            .filter((expense) => isPaid(expense.status) && expense.date === key)
+            .reduce((sum, expense) => sum + expense.value, 0) +
+          bankTransactions
+            .filter(
+              (transaction) =>
+                isBankTransactionRealized(transaction) &&
+                isBankOutflow(transaction) &&
+                transaction.date === key,
+            )
+            .reduce((sum, transaction) => sum + transaction.amount, 0),
+        projecao: saldo + projectedSales + projectedReceivables - projectedExpenses + projectedBank,
       };
     });
-  }, [days, expenses, receivables, saleIdsWithReceivables, sales, saldoInicial, start]);
+  }, [
+    bankTransactions,
+    days,
+    expenses,
+    receivables,
+    saleIdsWithReceivables,
+    sales,
+    saldoInicial,
+    start,
+  ]);
 
   const exportCsv = () => {
     const rows = [
@@ -327,12 +416,12 @@ function CashFlow() {
         <CashCard
           title="Maior entrada"
           value={biggestEntry}
-          subtitle={`${paidSalesInPeriod.length + receivedInPeriod.length} entradas recebidas`}
+          subtitle={`${paidSalesInPeriod.length + receivedInPeriod.length + realizedBankInflows.length} entradas recebidas`}
         />
         <CashCard
           title="Maior saida"
           value={biggestOutflow}
-          subtitle={`${paidExpensesInPeriod.length} despesas + investimentos pagos`}
+          subtitle={`${paidExpensesInPeriod.length + realizedBankOutflows.length} saidas realizadas`}
         />
         <CashCard
           title="Saldo projetado"

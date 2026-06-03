@@ -29,6 +29,7 @@ import { Route as AppContractsRouteImport } from './routes/_app/contracts'
 import { Route as AppClientsRouteImport } from './routes/_app/clients'
 import { Route as AppCashflowRouteImport } from './routes/_app/cashflow'
 import { Route as AppCalendarRouteImport } from './routes/_app/calendar'
+import { Route as AppBankRouteImport } from './routes/_app/bank'
 import { Route as AppAlertsRouteImport } from './routes/_app/alerts'
 
 const LoginRoute = LoginRouteImport.update({
@@ -130,6 +131,11 @@ const AppCalendarRoute = AppCalendarRouteImport.update({
   path: '/calendar',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBankRoute = AppBankRouteImport.update({
+  id: '/bank',
+  path: '/bank',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAlertsRoute = AppAlertsRouteImport.update({
   id: '/alerts',
   path: '/alerts',
@@ -140,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/alerts': typeof AppAlertsRoute
+  '/bank': typeof AppBankRoute
   '/calendar': typeof AppCalendarRoute
   '/cashflow': typeof AppCashflowRoute
   '/clients': typeof AppClientsRoute
@@ -162,6 +169,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/alerts': typeof AppAlertsRoute
+  '/bank': typeof AppBankRoute
   '/calendar': typeof AppCalendarRoute
   '/cashflow': typeof AppCashflowRoute
   '/clients': typeof AppClientsRoute
@@ -186,6 +194,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/alerts': typeof AppAlertsRoute
+  '/_app/bank': typeof AppBankRoute
   '/_app/calendar': typeof AppCalendarRoute
   '/_app/cashflow': typeof AppCashflowRoute
   '/_app/clients': typeof AppClientsRoute
@@ -210,6 +219,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/alerts'
+    | '/bank'
     | '/calendar'
     | '/cashflow'
     | '/clients'
@@ -232,6 +242,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/alerts'
+    | '/bank'
     | '/calendar'
     | '/cashflow'
     | '/clients'
@@ -255,6 +266,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/_app/alerts'
+    | '/_app/bank'
     | '/_app/calendar'
     | '/_app/cashflow'
     | '/_app/clients'
@@ -423,6 +435,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCalendarRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/bank': {
+      id: '/_app/bank'
+      path: '/bank'
+      fullPath: '/bank'
+      preLoaderRoute: typeof AppBankRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/alerts': {
       id: '/_app/alerts'
       path: '/alerts'
@@ -435,6 +454,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAlertsRoute: typeof AppAlertsRoute
+  AppBankRoute: typeof AppBankRoute
   AppCalendarRoute: typeof AppCalendarRoute
   AppCashflowRoute: typeof AppCashflowRoute
   AppClientsRoute: typeof AppClientsRoute
@@ -455,6 +475,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAlertsRoute: AppAlertsRoute,
+  AppBankRoute: AppBankRoute,
   AppCalendarRoute: AppCalendarRoute,
   AppCashflowRoute: AppCashflowRoute,
   AppClientsRoute: AppClientsRoute,

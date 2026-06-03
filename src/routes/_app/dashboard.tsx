@@ -56,6 +56,18 @@ import {
   cashBalanceKey,
   defaultCashBalance,
 } from "@/lib/cash-data";
+import {
+  bankTransactionsKey,
+  calculateBankInflows,
+  calculateBankOutflows,
+  calculateScheduledBankInflows,
+  calculateScheduledBankOutflows,
+  initialBankTransactions,
+  isBankInflow,
+  isBankOutflow,
+  isBankTransactionRealized,
+  type BankTransaction,
+} from "@/lib/bank-data";
 import { formatGoalDeadline } from "@/lib/smart-calendar";
 import { generateSystemAlerts } from "@/lib/system-alerts";
 
@@ -86,6 +98,10 @@ function Dashboard() {
     initialSellers,
   );
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
+  const [bankTransactions] = usePersistentState<BankTransaction[]>(
+    bankTransactionsKey,
+    initialBankTransactions,
+  );
   const syncedGoals = applyGoalMetrics(goals, { sales, expenses, clients });
   const alerts = useMemo(
     () =>
@@ -96,8 +112,9 @@ function Dashboard() {
         goals: syncedGoals,
         receivables,
         cashBase,
+        bankTransactions,
       }),
-    [cashBase, clients, expenses, receivables, sales, syncedGoals],
+    [bankTransactions, cashBase, clients, expenses, receivables, sales, syncedGoals],
   );
   const saleReceivables = useMemo(
     () => filterSaleReceivables(receivables, sales),
@@ -108,23 +125,28 @@ function Dashboard() {
     [saleReceivables],
   );
 
+  const bankInflows = calculateBankInflows(bankTransactions);
+  const bankOutflows = calculateBankOutflows(bankTransactions);
+  const scheduledBankInflows = calculateScheduledBankInflows(bankTransactions);
+  const scheduledBankOutflows = calculateScheduledBankOutflows(bankTransactions);
   const totalRevenue = sales.reduce((sum, sale) => sum + sale.value, 0);
-  const paidRevenue = calculateReceivedRevenue(sales, receivables);
+  const paidRevenue = calculateReceivedRevenue(sales, receivables) + bankInflows;
   const pendingRevenue =
     receivables
       .filter((receivable) => receivable.status === "previsto")
       .reduce((sum, receivable) => sum + receivable.amount, 0) +
     sales
       .filter((sale) => sale.status !== "pago" && !saleIdsWithReceivables.has(sale.id))
-      .reduce((sum, sale) => sum + sale.value, 0);
+      .reduce((sum, sale) => sum + sale.value, 0) +
+    scheduledBankInflows;
   const paidExpenses = expenses
     .filter((expense) => expense.status === "pago")
-    .reduce((sum, expense) => sum + expense.value, 0);
+    .reduce((sum, expense) => sum + expense.value, 0) + bankOutflows;
   const openExpenses = expenses
     .filter((expense) => expense.status !== "pago")
-    .reduce((sum, expense) => sum + expense.value, 0);
+    .reduce((sum, expense) => sum + expense.value, 0) + scheduledBankOutflows;
   const profit = paidRevenue - paidExpenses;
-  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables);
+  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables, bankTransactions);
   const balance = currentCash + pendingRevenue - openExpenses;
   const averageTicket = sales.length ? Math.round(totalRevenue / sales.length) : 0;
   const delinquentClients = clients.filter((client) => client.status === "inadimplente").length;
@@ -133,9 +155,9 @@ function Dashboard() {
   const goalCurrent = meta?.current ?? 0;
   const goalPct = goalTarget ? Math.min(100, Math.round((goalCurrent / goalTarget) * 100)) : 0;
 
-  const monthlyData = buildMonthlyData(sales, expenses);
+  const monthlyData = buildMonthlyData(sales, expenses, bankTransactions);
   const dailyData = buildDailyData(sales);
-  const expenseData = buildExpenseData(expenses);
+  const expenseData = buildExpenseData(expenses, bankTransactions);
   const serviceRanking = buildRanking(sales, "service");
   const collaboratorsByName = useMemo(() => buildCollaboratorMap(collaborators), [collaborators]);
   const sellerRanking = buildRanking(sales, "seller").map((row) => {
@@ -193,7 +215,7 @@ function Dashboard() {
               atencao
             </p>
             <p className="text-xs text-muted-foreground">
-              {formatBRL(openExpenses)} em despesas abertas e {formatBRL(pendingRevenue)} em
+              {formatBRL(openExpenses)} em despesas/pagamentos abertos e {formatBRL(pendingRevenue)} em
               receitas a receber
             </p>
           </div>
@@ -234,7 +256,7 @@ function Dashboard() {
           delta={6.5}
           icon={TrendingDown}
           accent="warning"
-          hint={`${expenses.length} despesas registradas`}
+          hint={`${expenses.length} despesas + ${bankTransactions.length} movimentos C6`}
         />
         <KpiCard
           label="Saldo projetado"
@@ -611,7 +633,11 @@ function RankingList({
   );
 }
 
-function buildMonthlyData(sales: typeof initialSales, expenses: typeof initialExpenses) {
+function buildMonthlyData(
+  sales: typeof initialSales,
+  expenses: typeof initialExpenses,
+  bankTransactions: BankTransaction[],
+) {
   const months = new Map<
     string,
     { month: string; receita: number; despesa: number; lucro: number }
@@ -629,6 +655,19 @@ function buildMonthlyData(sales: typeof initialSales, expenses: typeof initialEx
     const month = new Date(expense.date).toLocaleDateString("pt-BR", { month: "short" });
     const current = months.get(month) ?? { month, receita: 0, despesa: 0, lucro: 0 };
     current.despesa += expense.value;
+    current.lucro = current.receita - current.despesa;
+    months.set(month, current);
+  }
+
+  for (const transaction of bankTransactions.filter(isBankTransactionRealized)) {
+    const month = new Date(transaction.date).toLocaleDateString("pt-BR", { month: "short" });
+    const current = months.get(month) ?? { month, receita: 0, despesa: 0, lucro: 0 };
+    if (isBankInflow(transaction)) {
+      current.receita += transaction.amount;
+    }
+    if (isBankOutflow(transaction)) {
+      current.despesa += transaction.amount;
+    }
     current.lucro = current.receita - current.despesa;
     months.set(month, current);
   }
@@ -652,13 +691,24 @@ function buildDailyData(sales: typeof initialSales) {
   return [...days.values()].slice(-10);
 }
 
-function buildExpenseData(expenses: typeof initialExpenses) {
+function buildExpenseData(expenses: typeof initialExpenses, bankTransactions: BankTransaction[]) {
   const categories = new Map<string, { name: string; value: number }>();
 
   for (const expense of expenses) {
     const current = categories.get(expense.category) ?? { name: expense.category, value: 0 };
     current.value += expense.value;
     categories.set(expense.category, current);
+  }
+
+  for (const transaction of bankTransactions.filter(
+    (item) => isBankTransactionRealized(item) && isBankOutflow(item),
+  )) {
+    const current = categories.get(transaction.category) ?? {
+      name: transaction.category,
+      value: 0,
+    };
+    current.value += transaction.amount;
+    categories.set(transaction.category, current);
   }
 
   return [...categories.values()].sort((a, b) => b.value - a.value).slice(0, 6);

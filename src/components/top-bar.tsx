@@ -16,6 +16,11 @@ import {
 } from "@/lib/mock-data";
 import { applyGoalMetrics } from "@/lib/goal-metrics";
 import { cashBalanceKey, defaultCashBalance } from "@/lib/cash-data";
+import {
+  bankTransactionsKey,
+  initialBankTransactions,
+  type BankTransaction,
+} from "@/lib/bank-data";
 import { generateSystemAlerts } from "@/lib/system-alerts";
 import { clearAuthSession, getAuthSession, type AuthSession } from "@/lib/auth";
 import { canAccessRoute, getDefaultRouteForSession, type AppRoutePath } from "@/lib/permissions";
@@ -29,6 +34,10 @@ export function TopBar() {
   const [clients] = usePersistentState("va-manager:clients", initialClients);
   const [goals] = usePersistentState("va-manager:goals", initialGoals);
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
+  const [bankTransactions] = usePersistentState<BankTransaction[]>(
+    bankTransactionsKey,
+    initialBankTransactions,
+  );
   const [readIds] = usePersistentState<string[]>("va-manager:read-alerts", []);
   const [receivables] = useSyncedReceivables({ sales });
   const navigate = useNavigate();
@@ -42,8 +51,9 @@ export function TopBar() {
       goals: syncedGoals,
       receivables,
       cashBase,
+      bankTransactions,
     }).filter((alert) => !readIds.includes(alert.id)).length;
-  }, [cashBase, clients, expenses, goals, readIds, receivables, sales]);
+  }, [bankTransactions, cashBase, clients, expenses, goals, readIds, receivables, sales]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -78,6 +88,7 @@ export function TopBar() {
       { terms: ["cliente", "crm", "cpf", "cnpj"], to: "/clients" },
       { terms: ["venda", "comercial", "vendedor", "lead"], to: "/sales" },
       { terms: ["financeiro", "despesa", "receita", "conta"], to: "/financial" },
+      { terms: ["banco", "c6", "pix", "transferencia", "extrato"], to: "/bank" },
       { terms: ["caixa", "fluxo"], to: "/cashflow" },
       { terms: ["relatorio", "relatorio", "pdf", "excel"], to: "/reports" },
       { terms: ["alerta", "notificacao", "notificacao"], to: "/alerts" },

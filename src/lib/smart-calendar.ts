@@ -1,4 +1,5 @@
 import type { Receivable } from "@/lib/receivables";
+import { bankMethodLabels, type BankTransaction } from "@/lib/bank-data";
 
 export type SmartCalendarEvent = {
   id: string;
@@ -6,7 +7,7 @@ export type SmartCalendarEvent = {
   title: string;
   subtitle: string;
   amount?: number;
-  type: "expense" | "receivable" | "goal" | "sale" | "investment";
+  type: "expense" | "receivable" | "goal" | "sale" | "investment" | "bank";
   status: string;
 };
 
@@ -76,6 +77,7 @@ export function buildSmartEvents({
   goals,
   sales,
   investments = [],
+  bankTransactions = [],
 }: {
   expenses: Array<{
     id: string;
@@ -109,6 +111,7 @@ export function buildSmartEvents({
     spent: number;
     status: string;
   }>;
+  bankTransactions?: BankTransaction[];
 }) {
   const today = getToday();
   const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12);
@@ -149,6 +152,24 @@ export function buildSmartEvents({
       type: "sale" as const,
       status: sale.status,
     })),
+    ...bankTransactions
+      .filter((transaction) => transaction.status !== "cancelado")
+      .map((transaction) => ({
+        id: transaction.id,
+        date: transaction.date,
+        title: transaction.description,
+        subtitle: `${bankMethodLabels[transaction.method]} · Banco C6 PJ`,
+        amount: transaction.amount,
+        type: "bank" as const,
+        status:
+          transaction.status === "realizado"
+            ? transaction.type === "entrada"
+              ? "entrada realizada"
+              : "saída realizada"
+            : transaction.type === "entrada"
+              ? "entrada agendada"
+              : "saída agendada",
+      })),
     ...investments
       .filter((investment) => Math.max(investment.planned - investment.spent, 0) > 0)
       .map((investment) => ({

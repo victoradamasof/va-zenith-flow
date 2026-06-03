@@ -1,3 +1,5 @@
+import { calculateBankCashImpact, type BankTransaction } from "@/lib/bank-data";
+
 export const cashBalanceKey = "va-manager:cash-balance";
 export const defaultCashBalance = 0;
 
@@ -43,6 +45,12 @@ export function calculateCurrentCash(
   sales: CashSale[],
   expenses: CashExpense[],
   receivables: CashReceivable[] = [],
+  bankTransactions: BankTransaction[] = [],
 ) {
-  return baseCash + calculateReceivedRevenue(sales, receivables) - calculatePaidExpenses(expenses);
+  return (
+    baseCash +
+    calculateReceivedRevenue(sales, receivables) -
+    calculatePaidExpenses(expenses) +
+    calculateBankCashImpact(bankTransactions)
+  );
 }

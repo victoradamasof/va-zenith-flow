@@ -61,6 +61,15 @@ import {
   cashBalanceKey,
   defaultCashBalance,
 } from "@/lib/cash-data";
+import {
+  bankTransactionsKey,
+  calculateBankInflows,
+  calculateBankOutflows,
+  calculateScheduledBankInflows,
+  calculateScheduledBankOutflows,
+  initialBankTransactions,
+  type BankTransaction,
+} from "@/lib/bank-data";
 import type { Receivable } from "@/lib/receivables";
 
 export const Route = createFileRoute("/_app/financial")({
@@ -128,6 +137,10 @@ function Financial() {
     initialSellers,
   );
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
+  const [bankTransactions] = usePersistentState<BankTransaction[]>(
+    bankTransactionsKey,
+    initialBankTransactions,
+  );
   const [cashBase, setCashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
   const [categories, setCategories] = usePersistentState(
     "va-manager:expense-categories",
@@ -190,19 +203,31 @@ function Financial() {
     () => new Set(saleReceivables.map((receivable) => receivable.sourceId)),
     [saleReceivables],
   );
-  const totalReceitas = calculateReceivedRevenue(sales, receivables);
-  const totalDespesas = calculatePaidExpenses(expenses);
-  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables);
-  const aPagar = expenses
-    .filter((expense) => expense.status === "pendente" || expense.status === "atrasado")
-    .reduce((sum, expense) => sum + expense.value, 0);
+  const bankInflows = calculateBankInflows(bankTransactions);
+  const bankOutflows = calculateBankOutflows(bankTransactions);
+  const scheduledBankInflows = calculateScheduledBankInflows(bankTransactions);
+  const scheduledBankOutflows = calculateScheduledBankOutflows(bankTransactions);
+  const totalReceitas = calculateReceivedRevenue(sales, receivables) + bankInflows;
+  const totalDespesas = calculatePaidExpenses(expenses) + bankOutflows;
+  const currentCash = calculateCurrentCash(
+    cashBase,
+    sales,
+    expenses,
+    receivables,
+    bankTransactions,
+  );
+  const aPagar =
+    expenses
+      .filter((expense) => expense.status === "pendente" || expense.status === "atrasado")
+      .reduce((sum, expense) => sum + expense.value, 0) + scheduledBankOutflows;
   const aReceber =
     receivables
       .filter((receivable) => receivable.status === "previsto")
       .reduce((sum, receivable) => sum + receivable.amount, 0) +
     sales
       .filter((sale) => sale.status !== "pago" && !saleIdsWithReceivables.has(sale.id))
-      .reduce((sum, sale) => sum + sale.value, 0);
+      .reduce((sum, sale) => sum + sale.value, 0) +
+    scheduledBankInflows;
   const projectedCash = currentCash + aReceber - aPagar;
 
   useEffect(() => {
@@ -495,14 +520,14 @@ function Financial() {
           value={formatBRL(aReceber)}
           icon={Wallet}
           accent="info"
-          hint={`${receivables.filter((item) => item.status === "previsto").length} parcelas`}
+          hint={`${receivables.filter((item) => item.status === "previsto").length + bankTransactions.filter((item) => item.status === "agendado" && item.type === "entrada").length} parcelas`}
         />
         <KpiCard
           label="A pagar"
           value={formatBRL(aPagar)}
           icon={AlertCircle}
           accent="destructive"
-          hint={`${expenses.filter((expense) => expense.status === "pendente" || expense.status === "atrasado").length} títulos`}
+          hint={`${expenses.filter((expense) => expense.status === "pendente" || expense.status === "atrasado").length + bankTransactions.filter((item) => item.status === "agendado" && item.type === "saida").length} títulos`}
         />
       </div>
 
