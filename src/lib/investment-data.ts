@@ -59,6 +59,33 @@ function normalizeStatus(status: unknown): InvestmentItem["status"] {
   return "A pagar";
 }
 
+function normalizeInvestmentText(value: unknown, fallback: string) {
+  const text = String(value || fallback).trim();
+  const normalized = text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  const directMap: Record<string, string> = {
+    "gestao de trafego": "Gestão de tráfego",
+    "gestao de trÃ¡fego": "Gestão de tráfego",
+    "gestÃ£o de trÃ¡fego": "Gestão de tráfego",
+    trafego: "Tráfego",
+    "calcao/aluguel": "Caução/aluguel",
+    "calção/aluguel": "Caução/aluguel",
+    "espaco fisico": "Espaço físico",
+    "espaÃ§o fisico": "Espaço físico",
+    operacao: "Operação",
+    "operaÃ§ao": "Operação",
+    decoracao: "Decoração",
+    "decoraÃ§ao": "Decoração",
+    macbook: "MacBook",
+    "acessorios cel/limpeza": "Acessórios celular/limpeza",
+    "acessÃ³rios cel/limpeza": "Acessórios celular/limpeza",
+  };
+
+  return directMap[normalized] ?? directMap[text.toLowerCase()] ?? text;
+}
+
 export function normalizeInvestmentByStatus(item: Partial<InvestmentItem>): InvestmentItem {
   const quantity = Math.max(1, Math.round(parseMoney(item.quantity)));
   const unitValue = parseMoney(item.unitValue);
@@ -70,8 +97,8 @@ export function normalizeInvestmentByStatus(item: Partial<InvestmentItem>): Inve
     item:
       String(item.item || "Investimento").trim() === "Vencedor"
         ? "Victor"
-        : String(item.item || "Investimento").trim(),
-    category: String(item.category || "Outros").trim(),
+        : normalizeInvestmentText(item.item, "Investimento"),
+    category: normalizeInvestmentText(item.category, "Outros"),
     quantity,
     unitValue,
     planned,
