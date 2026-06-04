@@ -88,6 +88,34 @@ function DigitalSignaturePage() {
     };
   }, [decodedPayload, token]);
 
+  useEffect(() => {
+    if (!signingPayload) return;
+
+    let cancelled = false;
+
+    async function loadSignedRecord() {
+      try {
+        const contractId = getContractId(signingPayload as ContractSigningPayload);
+        const response = await fetch(`/api/signed-contracts/${encodeURIComponent(contractId)}`, {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) return;
+        const data = (await response.json()) as { record?: SignedContractRecord | null };
+        if (!cancelled && data.record) {
+          setSignedContracts((current) => mergeSignedContracts(current, [data.record!]));
+        }
+      } catch (error) {
+        console.warn("Could not load signed contract record", error);
+      }
+    }
+
+    void loadSignedRecord();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setSignedContracts, signingPayload]);
+
   if (loadingPayload) {
     return (
       <SignatureShell>
@@ -194,14 +222,14 @@ function DigitalSignaturePage() {
     setSignature("");
   };
 
-  const confirmSignature = () => {
+  const confirmSignature = async () => {
     if (!completed) {
       toast.error("Registre a selfie, assine e confirme a autorização.");
       return;
     }
     const now = new Date().toISOString();
     setSignedAt(now);
-    saveSignedRecord(
+    const record = saveSignedRecord(
       payload,
       signerRole,
       signerName,
@@ -211,6 +239,16 @@ function DigitalSignaturePage() {
       signedContracts,
       setSignedContracts,
     );
+    try {
+      const savedRecord = await saveSignedRecordToCloud(record);
+      if (savedRecord) {
+        setSignedContracts((current) => mergeSignedContracts(current, [savedRecord]));
+      }
+    } catch {
+      toast.warning(
+        "Assinatura salva neste aparelho. Tente novamente se ela nÃ£o aparecer no painel.",
+      );
+    }
     toast.success(
       signerRole === "seller"
         ? "Assinatura do vendedor registrada."
@@ -441,6 +479,43 @@ function saveSignedRecord(
     html,
   };
   setSignedContracts([record, ...current.filter((item) => item.id !== record.id)].slice(0, 50));
+  return record;
+}
+
+function mergeSignedContracts(
+  current: SignedContractRecord[],
+  incoming: SignedContractRecord[],
+) {
+  const merged = new Map<string, SignedContractRecord>();
+
+  for (const record of current) {
+    merged.set(record.id, record);
+  }
+
+  for (const record of incoming) {
+    const existing = merged.get(record.id);
+    merged.set(record.id, {
+      ...existing,
+      ...record,
+      clientEvidence: record.clientEvidence ?? existing?.clientEvidence,
+      sellerEvidence: record.sellerEvidence ?? existing?.sellerEvidence,
+      html: record.html ?? existing?.html,
+    });
+  }
+
+  return Array.from(merged.values()).slice(0, 50);
+}
+
+async function saveSignedRecordToCloud(record: SignedContractRecord) {
+  const response = await fetch("/api/signed-contracts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ record }),
+  });
+
+  if (!response.ok) throw new Error(`Could not save signed contract: ${response.status}`);
+  const data = (await response.json()) as { record?: SignedContractRecord };
+  return data.record;
 }
 
 function getPrintEvidence(record?: SignedContractRecord): ContractPrintEvidence | undefined {

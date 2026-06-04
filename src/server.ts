@@ -20,6 +20,7 @@ let serverEntryPromise: Promise<ServerEntry> | undefined;
 const cloudDataKey = "va-manager:primary-state";
 const signingLinkPrefix = "va-manager:signing-link:";
 const usersDataKey = "va-manager:users";
+const signedContractsDataKey = "va-manager:signed-contracts";
 
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
@@ -136,6 +137,49 @@ function mergeUsersPreservingCloud(existing: unknown, incoming: unknown) {
   return Array.from(merged.values());
 }
 
+function getSignedContractId(record: unknown) {
+  if (!record || typeof record !== "object") return "";
+  const id = (record as Record<string, unknown>).id;
+  return typeof id === "string" ? id.trim() : "";
+}
+
+function mergeSignedContractRecord(existing: unknown, incoming: unknown) {
+  if (!incoming || typeof incoming !== "object") return existing;
+  if (!existing || typeof existing !== "object") return incoming;
+
+  const existingRecord = existing as Record<string, unknown>;
+  const incomingRecord = incoming as Record<string, unknown>;
+  const clientEvidence = incomingRecord.clientEvidence ?? existingRecord.clientEvidence;
+  const sellerEvidence = incomingRecord.sellerEvidence ?? existingRecord.sellerEvidence;
+
+  return {
+    ...existingRecord,
+    ...incomingRecord,
+    clientEvidence,
+    sellerEvidence,
+    html: incomingRecord.html ?? existingRecord.html,
+  };
+}
+
+function mergeSignedContractsPreservingEvidence(existing: unknown, incoming: unknown) {
+  const existingContracts = Array.isArray(existing) ? existing : [];
+  const incomingContracts = Array.isArray(incoming) ? incoming : [];
+  const merged = new Map<string, unknown>();
+
+  for (const record of existingContracts) {
+    const id = getSignedContractId(record);
+    if (id) merged.set(id, record);
+  }
+
+  for (const record of incomingContracts) {
+    const id = getSignedContractId(record);
+    if (!id) continue;
+    merged.set(id, mergeSignedContractRecord(merged.get(id), record));
+  }
+
+  return Array.from(merged.values());
+}
+
 async function readCloudPayload(kv: KvNamespace): Promise<CloudPayload | null> {
   return parseCloudPayload(await kv.get(cloudDataKey));
 }
@@ -187,6 +231,13 @@ async function handleCloudDataRequest(request: Request, env: unknown): Promise<R
       );
     }
 
+    if (incomingData[signedContractsDataKey]) {
+      nextData[signedContractsDataKey] = mergeSignedContractsPreservingEvidence(
+        existingPayload?.data?.[signedContractsDataKey],
+        incomingData[signedContractsDataKey],
+      );
+    }
+
     const payload = await writeCloudPayload(kv, nextData);
     return jsonResponse(payload);
   }
@@ -227,6 +278,58 @@ async function handleUsersRequest(request: Request, env: unknown): Promise<Respo
     return jsonResponse({
       updatedAt: payload.updatedAt,
       users: payload.data[usersDataKey],
+    });
+  }
+
+  return jsonResponse({ error: "Method not allowed." }, { status: 405 });
+}
+
+async function handleSignedContractsRequest(request: Request, env: unknown): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/api/signed-contracts")) return null;
+
+  const kv = (env as CloudEnv).VA_MANAGER_DATA;
+  if (!kv) {
+    return jsonResponse({ error: "Cloud storage is not configured." }, { status: 503 });
+  }
+
+  if (request.method === "GET") {
+    const stored = await readCloudPayload(kv);
+    const records = Array.isArray(stored?.data?.[signedContractsDataKey])
+      ? stored?.data?.[signedContractsDataKey]
+      : [];
+    const id = decodeURIComponent(url.pathname.replace("/api/signed-contracts/", "")).trim();
+
+    if (id && id !== "/api/signed-contracts") {
+      const record = records.find((item) => getSignedContractId(item) === id);
+      return jsonResponse({ updatedAt: stored?.updatedAt ?? null, record: record ?? null });
+    }
+
+    return jsonResponse({ updatedAt: stored?.updatedAt ?? null, records });
+  }
+
+  if (request.method === "PUT" || request.method === "POST") {
+    const body = (await request.json()) as { record?: unknown };
+    const recordId = getSignedContractId(body?.record);
+    if (!recordId) {
+      return jsonResponse({ error: "Invalid signed contract payload." }, { status: 400 });
+    }
+
+    const existingPayload = await readCloudPayload(kv);
+    const nextRecords = mergeSignedContractsPreservingEvidence(
+      existingPayload?.data?.[signedContractsDataKey],
+      [body.record],
+    );
+    const savedRecord = nextRecords.find((item) => getSignedContractId(item) === recordId) ?? body.record;
+    const payload = await writeCloudPayload(kv, {
+      ...(existingPayload?.data ?? {}),
+      [signedContractsDataKey]: nextRecords,
+    });
+
+    return jsonResponse({
+      updatedAt: payload.updatedAt,
+      record: savedRecord,
+      records: nextRecords,
     });
   }
 
@@ -308,6 +411,9 @@ export default {
 
       const signingLinkResponse = await handleSigningLinkRequest(request, env);
       if (signingLinkResponse) return signingLinkResponse;
+
+      const signedContractsResponse = await handleSignedContractsRequest(request, env);
+      if (signedContractsResponse) return signedContractsResponse;
 
       const cloudDataResponse = await handleCloudDataRequest(request, env);
       if (cloudDataResponse) return cloudDataResponse;

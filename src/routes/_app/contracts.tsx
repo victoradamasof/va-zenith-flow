@@ -330,6 +330,31 @@ function Contracts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCloudSignedContracts() {
+      try {
+        const response = await fetch("/api/signed-contracts", {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) return;
+        const data = (await response.json()) as { records?: SignedContractRecord[] };
+        if (!cancelled && Array.isArray(data.records)) {
+          setSignedContracts((current) => mergeSignedContractRecords(current, data.records ?? []));
+        }
+      } catch (error) {
+        console.warn("Could not load cloud signed contracts", error);
+      }
+    }
+
+    void loadCloudSignedContracts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setSignedContracts]);
+
   const updateForm = (field: keyof ContractForm, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
@@ -1366,6 +1391,30 @@ function SignatureLine({
       {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
     </div>
   );
+}
+
+function mergeSignedContractRecords(
+  current: SignedContractRecord[],
+  incoming: SignedContractRecord[],
+) {
+  const merged = new Map<string, SignedContractRecord>();
+
+  for (const record of current) {
+    merged.set(record.id, record);
+  }
+
+  for (const record of incoming) {
+    const existing = merged.get(record.id);
+    merged.set(record.id, {
+      ...existing,
+      ...record,
+      clientEvidence: record.clientEvidence ?? existing?.clientEvidence,
+      sellerEvidence: record.sellerEvidence ?? existing?.sellerEvidence,
+      html: record.html ?? existing?.html,
+    });
+  }
+
+  return Array.from(merged.values()).slice(0, 50);
 }
 
 function normalizeText(value = "") {
