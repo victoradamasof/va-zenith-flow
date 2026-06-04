@@ -9,8 +9,21 @@ import {
   expenses as initialExpenses,
   formatBRL,
   sales as initialSales,
+  services as initialServices,
 } from "@/lib/mock-data";
 import { usePersistentState } from "@/hooks/use-persistent-state";
+import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
+import { calculatePaidExpenses, calculateReceivedRevenue } from "@/lib/cash-data";
+import {
+  calculateCommissionEntries,
+  calculatePayableCommissions,
+  commissionPaymentsKey,
+  type CommissionPayment,
+} from "@/lib/commissions";
+import {
+  calculatePendingServiceCosts,
+  calculateServiceCostEntries,
+} from "@/lib/service-costs";
 
 export const Route = createFileRoute("/_app/reports")({
   component: Reports,
@@ -84,17 +97,29 @@ function Reports() {
   const [sales] = usePersistentState("va-manager:sales", initialSales);
   const [expenses] = usePersistentState("va-manager:expenses", initialExpenses);
   const [clients] = usePersistentState("va-manager:clients", initialClients);
+  const [services] = usePersistentState("va-manager:services", initialServices);
+  const [commissionPayments] = usePersistentState<CommissionPayment[]>(
+    commissionPaymentsKey,
+    [],
+  );
+  const [receivables] = useSyncedReceivables({ sales });
+  const commissionEntries = calculateCommissionEntries({
+    sales,
+    services,
+    receivables,
+    payments: commissionPayments,
+  });
+  const serviceCostEntries = calculateServiceCostEntries({ sales, services, receivables });
 
-  const paidRevenue = sales
-    .filter((sale) => sale.status === "pago")
-    .reduce((sum, sale) => sum + sale.value, 0);
+  const paidRevenue = calculateReceivedRevenue(sales, receivables);
   const totalRevenue = sales.reduce((sum, sale) => sum + sale.value, 0);
-  const paidExpenses = expenses
-    .filter((expense) => expense.status === "pago")
-    .reduce((sum, expense) => sum + expense.value, 0);
-  const pendingExpenses = expenses
-    .filter((expense) => expense.status !== "pago")
-    .reduce((sum, expense) => sum + expense.value, 0);
+  const paidExpenses = calculatePaidExpenses(expenses, commissionEntries, serviceCostEntries);
+  const pendingExpenses =
+    expenses
+      .filter((expense) => expense.status !== "pago")
+      .reduce((sum, expense) => sum + expense.value, 0) +
+    calculatePayableCommissions(commissionEntries) +
+    calculatePendingServiceCosts(serviceCostEntries);
   const profit = paidRevenue - paidExpenses;
   const delinquentClients = clients.filter((client) => client.status === "inadimplente");
 
@@ -133,6 +158,22 @@ function Reports() {
         expense.category,
         String(expense.value),
         expense.status,
+      ]),
+      ...commissionEntries.map((commission) => [
+        "Comissão",
+        commission.paidAt ?? commission.dueDate,
+        commission.seller,
+        commission.service,
+        String(commission.amount),
+        commission.status,
+      ]),
+      ...serviceCostEntries.map((cost) => [
+        "Custo de serviço",
+        cost.date,
+        cost.client,
+        cost.service,
+        String(cost.amount),
+        cost.status,
       ]),
     ];
     const csv = rows
@@ -187,6 +228,16 @@ function Reports() {
           <table>
           <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Status</th></tr></thead>
             <tbody>${expenses.map((expense) => `<tr><td>${expense.date}</td><td>${expense.desc}</td><td>${expense.category}</td><td>${formatBRL(expense.value)}</td><td>${expense.status}</td></tr>`).join("")}</tbody>
+          </table>
+          <h2>Comissões</h2>
+          <table>
+          <thead><tr><th>Data</th><th>Vendedor</th><th>Serviço</th><th>Valor</th><th>Status</th></tr></thead>
+            <tbody>${commissionEntries.map((commission) => `<tr><td>${commission.paidAt ?? commission.dueDate}</td><td>${commission.seller}</td><td>${commission.service}</td><td>${formatBRL(commission.amount)}</td><td>${commission.status}</td></tr>`).join("")}</tbody>
+          </table>
+          <h2>Custos dos serviços</h2>
+          <table>
+          <thead><tr><th>Data</th><th>Cliente</th><th>Serviço</th><th>Valor</th><th>Status</th></tr></thead>
+            <tbody>${serviceCostEntries.map((cost) => `<tr><td>${cost.date}</td><td>${cost.client}</td><td>${cost.service}</td><td>${formatBRL(cost.amount)}</td><td>${cost.status}</td></tr>`).join("")}</tbody>
           </table>
         </body>
       </html>

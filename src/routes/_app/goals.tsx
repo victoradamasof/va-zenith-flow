@@ -27,9 +27,17 @@ import {
   goals as initialGoals,
   formatBRL,
   sales as initialSales,
+  services as initialServices,
 } from "@/lib/mock-data";
 import { usePersistentState } from "@/hooks/use-persistent-state";
+import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { applyGoalMetrics } from "@/lib/goal-metrics";
+import {
+  calculateCommissionEntries,
+  commissionPaymentsKey,
+  type CommissionPayment,
+} from "@/lib/commissions";
+import { calculateServiceCostEntries } from "@/lib/service-costs";
 import { daysUntil, formatGoalDeadline, getToday, parseGoalDeadline } from "@/lib/smart-calendar";
 
 export const Route = createFileRoute("/_app/goals")({
@@ -66,12 +74,40 @@ function Goals() {
   const [sales] = usePersistentState("va-manager:sales", initialSales);
   const [expenses] = usePersistentState("va-manager:expenses", initialExpenses);
   const [clients] = usePersistentState("va-manager:clients", initialClients);
+  const [services] = usePersistentState("va-manager:services", initialServices);
+  const [commissionPayments] = usePersistentState<CommissionPayment[]>(
+    commissionPaymentsKey,
+    [],
+  );
+  const [receivables] = useSyncedReceivables({ sales });
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const today = useMemo(() => getToday(), []);
+  const commissionEntries = useMemo(
+    () =>
+      calculateCommissionEntries({
+        sales,
+        services,
+        receivables,
+        payments: commissionPayments,
+      }),
+    [commissionPayments, receivables, sales, services],
+  );
+  const serviceCostEntries = useMemo(
+    () => calculateServiceCostEntries({ sales, services, receivables }),
+    [receivables, sales, services],
+  );
   const syncedGoals = useMemo(
-    () => applyGoalMetrics(goals, { sales, expenses, clients }),
-    [clients, expenses, goals, sales],
+    () =>
+      applyGoalMetrics(goals, {
+        sales,
+        expenses,
+        clients,
+        receivables,
+        commissions: commissionEntries,
+        serviceCosts: serviceCostEntries,
+      }),
+    [clients, commissionEntries, expenses, goals, receivables, sales, serviceCostEntries],
   );
 
   const updateForm = (field: keyof typeof form, value: string) => {

@@ -31,6 +31,7 @@ import {
   commissionPaymentsKey,
   type CommissionPayment,
 } from "@/lib/commissions";
+import { calculateServiceCostEntries } from "@/lib/service-costs";
 import {
   bankTransactionsKey,
   initialBankTransactions,
@@ -106,6 +107,10 @@ function CashFlow() {
       }),
     [commissionPayments, receivables, sales, services],
   );
+  const serviceCostEntries = useMemo(
+    () => calculateServiceCostEntries({ sales, services, receivables }),
+    [receivables, sales, services],
+  );
 
   const paidSalesInPeriod = filteredSales.filter(
     (sale) => isPaid(sale.status) && !saleIdsWithReceivables.has(sale.id),
@@ -141,6 +146,12 @@ function CashFlow() {
   const payableCommissionsInPeriod = commissionEntries.filter(
     (commission) => commission.status === "a_pagar" && parseLocalDate(commission.dueDate) >= start,
   );
+  const realizedServiceCostsInPeriod = serviceCostEntries.filter(
+    (cost) => cost.status === "realizado" && parseLocalDate(cost.date) >= start,
+  );
+  const pendingServiceCostsInPeriod = serviceCostEntries.filter(
+    (cost) => cost.status === "previsto" && parseLocalDate(cost.date) >= start,
+  );
 
   const entradas =
     paidSalesInPeriod.reduce((sum, sale) => sum + sale.value, 0) +
@@ -149,7 +160,8 @@ function CashFlow() {
   const saidas =
     paidExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0) +
     realizedBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0) +
-    paidCommissionsInPeriod.reduce((sum, commission) => sum + commission.amount, 0);
+    paidCommissionsInPeriod.reduce((sum, commission) => sum + commission.amount, 0) +
+    realizedServiceCostsInPeriod.reduce((sum, cost) => sum + cost.amount, 0);
   const currentCash = calculateCurrentCash(
     cashBase,
     sales,
@@ -157,6 +169,7 @@ function CashFlow() {
     receivables,
     bankTransactions,
     commissionEntries,
+    serviceCostEntries,
   );
   const saldoInicial = currentCash - entradas + saidas;
   const saldoFinal = saldoInicial + entradas - saidas;
@@ -168,7 +181,8 @@ function CashFlow() {
   const saidasPrevistas =
     pendingExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0) +
     scheduledBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0) +
-    payableCommissionsInPeriod.reduce((sum, commission) => sum + commission.amount, 0);
+    payableCommissionsInPeriod.reduce((sum, commission) => sum + commission.amount, 0) +
+    pendingServiceCostsInPeriod.reduce((sum, cost) => sum + cost.amount, 0);
   const saldoProjetado = saldoFinal + entradasPrevistas - saidasPrevistas;
   const safeMinimum = Math.max(3000, Math.round(Math.max(currentCash, 1) * 0.2));
 
@@ -183,6 +197,7 @@ function CashFlow() {
     ...paidExpensesInPeriod.map((expense) => expense.value),
     ...realizedBankOutflows.map((transaction) => transaction.amount),
     ...paidCommissionsInPeriod.map((commission) => commission.amount),
+    ...realizedServiceCostsInPeriod.map((cost) => cost.amount),
   );
 
   const chartData = useMemo(() => {
@@ -221,6 +236,14 @@ function CashFlow() {
             parseLocalDate(commission.paidAt ?? commission.dueDate) >= start,
         )
         .reduce((sum, commission) => sum + commission.amount, 0);
+      const realizedServiceCosts = serviceCostEntries
+        .filter(
+          (cost) =>
+            cost.status === "realizado" &&
+            cost.date <= key &&
+            parseLocalDate(cost.date) >= start,
+        )
+        .reduce((sum, cost) => sum + cost.amount, 0);
       const realizedBank = bankTransactions
         .filter(
           (transaction) =>
@@ -239,7 +262,8 @@ function CashFlow() {
         realizedReceivables +
         realizedBank -
         realizedExpenses -
-        realizedCommissions;
+        realizedCommissions -
+        realizedServiceCosts;
 
       const projectedSales = sales
         .filter(
@@ -272,6 +296,12 @@ function CashFlow() {
             parseLocalDate(commission.dueDate) >= start,
         )
         .reduce((sum, commission) => sum + commission.amount, 0);
+      const projectedServiceCosts = serviceCostEntries
+        .filter(
+          (cost) =>
+            cost.status === "previsto" && cost.date <= key && parseLocalDate(cost.date) >= start,
+        )
+        .reduce((sum, cost) => sum + cost.amount, 0);
       const projectedBank = bankTransactions
         .filter(
           (transaction) =>
@@ -323,13 +353,17 @@ function CashFlow() {
                 commission.status === "paga" &&
                 (commission.paidAt ?? commission.dueDate) === key,
             )
-            .reduce((sum, commission) => sum + commission.amount, 0),
+            .reduce((sum, commission) => sum + commission.amount, 0) +
+          serviceCostEntries
+            .filter((cost) => cost.status === "realizado" && cost.date === key)
+            .reduce((sum, cost) => sum + cost.amount, 0),
         projecao:
           saldo +
           projectedSales +
           projectedReceivables -
           projectedExpenses -
-          projectedCommissions +
+          projectedCommissions -
+          projectedServiceCosts +
           projectedBank,
       };
     });
@@ -341,6 +375,7 @@ function CashFlow() {
     receivables,
     saleIdsWithReceivables,
     sales,
+    serviceCostEntries,
     saldoInicial,
     start,
   ]);
@@ -499,7 +534,7 @@ function CashFlow() {
         <CashCard
           title="Maior saida"
           value={biggestOutflow}
-          subtitle={`${paidExpensesInPeriod.length + realizedBankOutflows.length + paidCommissionsInPeriod.length} saidas realizadas`}
+          subtitle={`${paidExpensesInPeriod.length + realizedBankOutflows.length + paidCommissionsInPeriod.length + realizedServiceCostsInPeriod.length} saidas realizadas`}
         />
         <CashCard
           title="Saldo projetado"

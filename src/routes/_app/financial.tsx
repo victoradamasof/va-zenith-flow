@@ -62,6 +62,10 @@ import {
   type CommissionPayment,
 } from "@/lib/commissions";
 import {
+  calculatePendingServiceCosts,
+  calculateServiceCostEntries,
+} from "@/lib/service-costs";
+import {
   calculateCurrentCash,
   calculatePaidExpenses,
   calculateReceivedRevenue,
@@ -272,6 +276,10 @@ function Financial() {
       }),
     [commissionPayments, receivables, sales, services],
   );
+  const serviceCostEntries = useMemo(
+    () => calculateServiceCostEntries({ sales, services, receivables }),
+    [receivables, sales, services],
+  );
   const filteredCommissions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return commissionEntries;
@@ -291,14 +299,27 @@ function Financial() {
         .includes(normalizedQuery),
     );
   }, [commissionEntries, query]);
+  const filteredServiceCosts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return serviceCostEntries;
+
+    return serviceCostEntries.filter((entry) =>
+      [entry.date, entry.client, entry.seller, entry.service, entry.status]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [query, serviceCostEntries]);
   const payableCommissions = calculatePayableCommissions(commissionEntries);
+  const pendingServiceCosts = calculatePendingServiceCosts(serviceCostEntries);
   const bankInflows = calculateBankInflows(bankTransactions);
   const bankOutflows = calculateBankOutflows(bankTransactions);
   const scheduledBankInflows = calculateScheduledBankInflows(bankTransactions);
   const scheduledBankOutflows = calculateScheduledBankOutflows(bankTransactions);
   const bankCashImpact = bankInflows - bankOutflows;
   const totalReceitas = calculateReceivedRevenue(sales, receivables) + bankInflows;
-  const totalDespesas = calculatePaidExpenses(expenses, commissionEntries) + bankOutflows;
+  const totalDespesas =
+    calculatePaidExpenses(expenses, commissionEntries, serviceCostEntries) + bankOutflows;
   const currentCash = calculateCurrentCash(
     cashBase,
     sales,
@@ -306,13 +327,15 @@ function Financial() {
     receivables,
     bankTransactions,
     commissionEntries,
+    serviceCostEntries,
   );
   const aPagar =
     expenses
       .filter((expense) => expense.status === "pendente" || expense.status === "atrasado")
       .reduce((sum, expense) => sum + expense.value, 0) +
     scheduledBankOutflows +
-    payableCommissions;
+    payableCommissions +
+    pendingServiceCosts;
   const aReceber =
     receivables
       .filter((receivable) => receivable.status === "previsto")
@@ -788,6 +811,7 @@ function Financial() {
               <TabsTrigger value="receitas">Receitas</TabsTrigger>
               <TabsTrigger value="previsivel">Receita previsível</TabsTrigger>
               <TabsTrigger value="comissoes">Comissões</TabsTrigger>
+              <TabsTrigger value="custos-servicos">Custos dos serviços</TabsTrigger>
               <TabsTrigger value="caixa">Caixa</TabsTrigger>
               <TabsTrigger value="banco">Banco/C6</TabsTrigger>
               <TabsTrigger value="categorias">Categorias</TabsTrigger>
@@ -1139,6 +1163,82 @@ function Financial() {
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nenhuma comissão encontrada.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="custos-servicos" className="mt-0">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Custos cadastrados em Serviços são aplicados automaticamente por venda. Se a venda
+                já teve recebimento, o custo entra como realizado; caso contrário, entra como
+                previsto.
+              </p>
+              <Badge variant="outline" className="border-border/60">
+                {formatBRL(pendingServiceCosts)} previstos
+              </Badge>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border/60">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead>Data</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Serviço</TableHead>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead className="text-right">Venda</TableHead>
+                    <TableHead className="text-right">Custo</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredServiceCosts.map((entry) => {
+                    const seller = collaboratorsByName.get(
+                      normalizeCollaboratorName(entry.seller),
+                    ) ?? {
+                      name: entry.seller,
+                    };
+
+                    return (
+                      <TableRow key={entry.id} className="hover:bg-muted/30">
+                        <TableCell className="text-muted-foreground">
+                          {formatLocalDateBR(entry.date)}
+                        </TableCell>
+                        <TableCell className="font-medium">{entry.client}</TableCell>
+                        <TableCell>{entry.service}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <CollaboratorAvatar person={seller} className="h-7 w-7 text-[11px]" />
+                            <span className="text-muted-foreground">{entry.seller}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {formatBRL(entry.saleValue)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums text-warning">
+                          {formatBRL(entry.amount)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={`${statusBadge(entry.status)} hover:${statusBadge(entry.status)}`}
+                          >
+                            {entry.status === "realizado" ? "Realizado" : "Previsto"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {filteredServiceCosts.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={7}
+                        className="py-8 text-center text-sm text-muted-foreground"
+                      >
+                        Nenhum custo de serviço encontrado.
                       </TableCell>
                     </TableRow>
                   )}

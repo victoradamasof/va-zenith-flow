@@ -12,6 +12,7 @@ import {
   expenses as initialExpenses,
   goals as initialGoals,
   sales as initialSales,
+  services as initialServices,
 } from "@/lib/mock-data";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
@@ -22,6 +23,12 @@ import {
   initialBankTransactions,
   type BankTransaction,
 } from "@/lib/bank-data";
+import {
+  calculateCommissionEntries,
+  commissionPaymentsKey,
+  type CommissionPayment,
+} from "@/lib/commissions";
+import { calculateServiceCostEntries } from "@/lib/service-costs";
 import { generateSystemAlerts, type SystemAlert } from "@/lib/system-alerts";
 
 export const Route = createFileRoute("/_app/alerts")({
@@ -47,6 +54,11 @@ function Alerts() {
   const [expenses] = usePersistentState("va-manager:expenses", initialExpenses);
   const [clients] = usePersistentState("va-manager:clients", initialClients);
   const [goals] = usePersistentState("va-manager:goals", initialGoals);
+  const [services] = usePersistentState("va-manager:services", initialServices);
+  const [commissionPayments] = usePersistentState<CommissionPayment[]>(
+    commissionPaymentsKey,
+    [],
+  );
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
   const [bankTransactions] = usePersistentState<BankTransaction[]>(
     bankTransactionsKey,
@@ -57,7 +69,21 @@ function Alerts() {
   const [query, setQuery] = useState("");
 
   const alerts = useMemo<AlertItem[]>(() => {
-    const syncedGoals = applyGoalMetrics(goals, { sales, expenses, clients });
+    const commissionEntries = calculateCommissionEntries({
+      sales,
+      services,
+      receivables,
+      payments: commissionPayments,
+    });
+    const serviceCostEntries = calculateServiceCostEntries({ sales, services, receivables });
+    const syncedGoals = applyGoalMetrics(goals, {
+      sales,
+      expenses,
+      clients,
+      receivables,
+      commissions: commissionEntries,
+      serviceCosts: serviceCostEntries,
+    });
     const generated = generateSystemAlerts({
       sales,
       expenses,
@@ -66,9 +92,22 @@ function Alerts() {
       receivables,
       cashBase,
       bankTransactions,
+      commissions: commissionEntries,
+      serviceCosts: serviceCostEntries,
     });
     return generated.map((alert) => ({ ...alert, read: readIds.includes(alert.id) }));
-  }, [bankTransactions, cashBase, clients, expenses, goals, readIds, receivables, sales]);
+  }, [
+    bankTransactions,
+    cashBase,
+    clients,
+    commissionPayments,
+    expenses,
+    goals,
+    readIds,
+    receivables,
+    sales,
+    services,
+  ]);
 
   const filteredAlerts = useMemo(() => {
     const q = query.trim().toLowerCase();

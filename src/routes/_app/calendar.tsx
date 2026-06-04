@@ -13,11 +13,22 @@ import {
   expenses as initialExpenses,
   goals as initialGoals,
   sales as initialSales,
+  services as initialServices,
   formatBRL,
 } from "@/lib/mock-data";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { applyGoalMetrics } from "@/lib/goal-metrics";
+import {
+  calculateCommissionEntries,
+  calculatePayableCommissions,
+  commissionPaymentsKey,
+  type CommissionPayment,
+} from "@/lib/commissions";
+import {
+  calculatePendingServiceCosts,
+  calculateServiceCostEntries,
+} from "@/lib/service-costs";
 import {
   defaultInvestmentContribution,
   investmentContributionKey,
@@ -58,6 +69,8 @@ const eventStyle: Record<SmartCalendarEvent["type"], string> = {
   sale: "bg-info/15 text-info border-info/25",
   investment: "bg-warning/15 text-warning border-warning/25",
   bank: "bg-primary/15 text-primary border-primary/25",
+  "service-cost": "bg-warning/15 text-warning border-warning/25",
+  commission: "bg-warning/15 text-warning border-warning/25",
 };
 
 function SmartCalendar() {
@@ -68,6 +81,11 @@ function SmartCalendar() {
   const [goals] = usePersistentState<Goal[]>("va-manager:goals", initialGoals);
   const [sales] = usePersistentState("va-manager:sales", initialSales);
   const [clients] = usePersistentState("va-manager:clients", initialClients);
+  const [services] = usePersistentState("va-manager:services", initialServices);
+  const [commissionPayments] = usePersistentState<CommissionPayment[]>(
+    commissionPaymentsKey,
+    [],
+  );
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
   const [investments] = usePersistentState<InvestmentItem[]>(
     "va-manager:investments",
@@ -87,9 +105,31 @@ function SmartCalendar() {
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const monthLabel = today.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   const monthDaysLeft = daysLeftInMonth(today);
+  const commissionEntries = useMemo(
+    () =>
+      calculateCommissionEntries({
+        sales,
+        services,
+        receivables,
+        payments: commissionPayments,
+      }),
+    [commissionPayments, receivables, sales, services],
+  );
+  const serviceCostEntries = useMemo(
+    () => calculateServiceCostEntries({ sales, services, receivables }),
+    [receivables, sales, services],
+  );
   const syncedGoals = useMemo(
-    () => applyGoalMetrics(goals, { sales, expenses, clients }),
-    [clients, expenses, goals, sales],
+    () =>
+      applyGoalMetrics(goals, {
+        sales,
+        expenses,
+        clients,
+        receivables,
+        commissions: commissionEntries,
+        serviceCosts: serviceCostEntries,
+      }),
+    [clients, commissionEntries, expenses, goals, receivables, sales, serviceCostEntries],
   );
 
   const events = useMemo(
@@ -103,8 +143,20 @@ function SmartCalendar() {
         receivables,
         sales,
         bankTransactions,
+        serviceCosts: serviceCostEntries,
+        commissions: commissionEntries,
       }),
-    [expenses, syncedGoals, investments, investmentContribution, receivables, sales, bankTransactions],
+    [
+      bankTransactions,
+      commissionEntries,
+      expenses,
+      investmentContribution,
+      investments,
+      receivables,
+      sales,
+      serviceCostEntries,
+      syncedGoals,
+    ],
   );
 
   const selectedEvents = events.filter((event) => event.date === selectedDate);
@@ -129,7 +181,9 @@ function SmartCalendar() {
   );
   const payableAmount =
     openPayments.reduce((sum, expense) => sum + expense.value, 0) +
-    openBankPayments.reduce((sum, transaction) => sum + transaction.amount, 0);
+    openBankPayments.reduce((sum, transaction) => sum + transaction.amount, 0) +
+    calculatePayableCommissions(commissionEntries) +
+    calculatePendingServiceCosts(serviceCostEntries);
   const receivableAmount =
     openReceivables.reduce((sum, receivable) => sum + receivable.amount, 0) +
     openBankReceivables.reduce((sum, transaction) => sum + transaction.amount, 0);
@@ -458,6 +512,7 @@ function dotClass(type: SmartCalendarEvent["type"]) {
   if (type === "receivable") return "bg-success";
   if (type === "goal") return "bg-primary";
   if (type === "investment") return "bg-warning";
+  if (type === "service-cost" || type === "commission") return "bg-warning";
   if (type === "bank") return "bg-primary";
   return "bg-info";
 }

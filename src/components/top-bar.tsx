@@ -13,6 +13,7 @@ import {
   expenses as initialExpenses,
   goals as initialGoals,
   sales as initialSales,
+  services as initialServices,
 } from "@/lib/mock-data";
 import { applyGoalMetrics } from "@/lib/goal-metrics";
 import { cashBalanceKey, defaultCashBalance } from "@/lib/cash-data";
@@ -21,6 +22,12 @@ import {
   initialBankTransactions,
   type BankTransaction,
 } from "@/lib/bank-data";
+import {
+  calculateCommissionEntries,
+  commissionPaymentsKey,
+  type CommissionPayment,
+} from "@/lib/commissions";
+import { calculateServiceCostEntries } from "@/lib/service-costs";
 import { generateSystemAlerts } from "@/lib/system-alerts";
 import { clearAuthSession, getAuthSession, type AuthSession } from "@/lib/auth";
 import { canAccessRoute, getDefaultRouteForSession, type AppRoutePath } from "@/lib/permissions";
@@ -33,6 +40,11 @@ export function TopBar() {
   const [expenses] = usePersistentState("va-manager:expenses", initialExpenses);
   const [clients] = usePersistentState("va-manager:clients", initialClients);
   const [goals] = usePersistentState("va-manager:goals", initialGoals);
+  const [services] = usePersistentState("va-manager:services", initialServices);
+  const [commissionPayments] = usePersistentState<CommissionPayment[]>(
+    commissionPaymentsKey,
+    [],
+  );
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
   const [bankTransactions] = usePersistentState<BankTransaction[]>(
     bankTransactionsKey,
@@ -43,7 +55,21 @@ export function TopBar() {
   const navigate = useNavigate();
 
   const unreadAlerts = useMemo(() => {
-    const syncedGoals = applyGoalMetrics(goals, { sales, expenses, clients });
+    const commissionEntries = calculateCommissionEntries({
+      sales,
+      services,
+      receivables,
+      payments: commissionPayments,
+    });
+    const serviceCostEntries = calculateServiceCostEntries({ sales, services, receivables });
+    const syncedGoals = applyGoalMetrics(goals, {
+      sales,
+      expenses,
+      clients,
+      receivables,
+      commissions: commissionEntries,
+      serviceCosts: serviceCostEntries,
+    });
     return generateSystemAlerts({
       sales,
       expenses,
@@ -52,8 +78,21 @@ export function TopBar() {
       receivables,
       cashBase,
       bankTransactions,
+      commissions: commissionEntries,
+      serviceCosts: serviceCostEntries,
     }).filter((alert) => !readIds.includes(alert.id)).length;
-  }, [bankTransactions, cashBase, clients, expenses, goals, readIds, receivables, sales]);
+  }, [
+    bankTransactions,
+    cashBase,
+    clients,
+    commissionPayments,
+    expenses,
+    goals,
+    readIds,
+    receivables,
+    sales,
+    services,
+  ]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);

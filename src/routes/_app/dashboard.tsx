@@ -65,6 +65,10 @@ import {
   type CommissionPayment,
 } from "@/lib/commissions";
 import {
+  calculatePendingServiceCosts,
+  calculateServiceCostEntries,
+} from "@/lib/service-costs";
+import {
   bankTransactionsKey,
   calculateBankInflows,
   calculateBankOutflows,
@@ -116,20 +120,6 @@ function Dashboard() {
     bankTransactionsKey,
     initialBankTransactions,
   );
-  const syncedGoals = applyGoalMetrics(goals, { sales, expenses, clients });
-  const alerts = useMemo(
-    () =>
-      generateSystemAlerts({
-        sales,
-        expenses,
-        clients,
-        goals: syncedGoals,
-        receivables,
-        cashBase,
-        bankTransactions,
-      }),
-    [bankTransactions, cashBase, clients, expenses, receivables, sales, syncedGoals],
-  );
   const saleReceivables = useMemo(
     () => filterSaleReceivables(receivables, sales),
     [receivables, sales],
@@ -148,6 +138,43 @@ function Dashboard() {
       }),
     [commissionPayments, receivables, sales, services],
   );
+  const serviceCostEntries = useMemo(
+    () => calculateServiceCostEntries({ sales, services, receivables }),
+    [receivables, sales, services],
+  );
+  const syncedGoals = applyGoalMetrics(goals, {
+    sales,
+    expenses,
+    clients,
+    receivables,
+    commissions: commissionEntries,
+    serviceCosts: serviceCostEntries,
+  });
+  const alerts = useMemo(
+    () =>
+      generateSystemAlerts({
+        sales,
+        expenses,
+        clients,
+        goals: syncedGoals,
+        receivables,
+        cashBase,
+        bankTransactions,
+        commissions: commissionEntries,
+        serviceCosts: serviceCostEntries,
+      }),
+    [
+      bankTransactions,
+      cashBase,
+      clients,
+      commissionEntries,
+      expenses,
+      receivables,
+      sales,
+      serviceCostEntries,
+      syncedGoals,
+    ],
+  );
 
   const bankInflows = calculateBankInflows(bankTransactions);
   const bankOutflows = calculateBankOutflows(bankTransactions);
@@ -163,13 +190,16 @@ function Dashboard() {
       .filter((sale) => sale.status !== "pago" && !saleIdsWithReceivables.has(sale.id))
       .reduce((sum, sale) => sum + sale.value, 0) +
     scheduledBankInflows;
-  const paidExpenses = calculatePaidExpenses(expenses, commissionEntries) + bankOutflows;
+  const paidExpenses =
+    calculatePaidExpenses(expenses, commissionEntries, serviceCostEntries) + bankOutflows;
   const payableCommissions = calculatePayableCommissions(commissionEntries);
+  const pendingServiceCosts = calculatePendingServiceCosts(serviceCostEntries);
   const openExpenses = expenses
     .filter((expense) => expense.status !== "pago")
     .reduce((sum, expense) => sum + expense.value, 0) +
     scheduledBankOutflows +
-    payableCommissions;
+    payableCommissions +
+    pendingServiceCosts;
   const profit = paidRevenue - paidExpenses;
   const currentCash = calculateCurrentCash(
     cashBase,
@@ -178,6 +208,7 @@ function Dashboard() {
     receivables,
     bankTransactions,
     commissionEntries,
+    serviceCostEntries,
   );
   const balance = currentCash + pendingRevenue - openExpenses;
   const averageTicket = sales.length ? Math.round(totalRevenue / sales.length) : 0;
@@ -187,9 +218,20 @@ function Dashboard() {
   const goalCurrent = meta?.current ?? 0;
   const goalPct = goalTarget ? Math.min(100, Math.round((goalCurrent / goalTarget) * 100)) : 0;
 
-  const monthlyData = buildMonthlyData(sales, expenses, bankTransactions, commissionEntries);
+  const monthlyData = buildMonthlyData(
+    sales,
+    expenses,
+    bankTransactions,
+    commissionEntries,
+    serviceCostEntries,
+  );
   const dailyData = buildDailyData(sales);
-  const expenseData = buildExpenseData(expenses, bankTransactions, commissionEntries);
+  const expenseData = buildExpenseData(
+    expenses,
+    bankTransactions,
+    commissionEntries,
+    serviceCostEntries,
+  );
   const serviceRanking = buildRanking(sales, "service");
   const collaboratorsByName = useMemo(() => buildCollaboratorMap(collaborators), [collaborators]);
   const sellerRanking = buildRanking(sales, "seller").map((row) => {
@@ -670,6 +712,7 @@ function buildMonthlyData(
   expenses: typeof initialExpenses,
   bankTransactions: BankTransaction[],
   commissionEntries: ReturnType<typeof calculateCommissionEntries>,
+  serviceCostEntries: ReturnType<typeof calculateServiceCostEntries>,
 ) {
   const months = new Map<
     string,
@@ -713,6 +756,14 @@ function buildMonthlyData(
     months.set(month, current);
   }
 
+  for (const cost of serviceCostEntries.filter((entry) => entry.status === "realizado")) {
+    const month = formatLocalDateBR(cost.date, { month: "short" });
+    const current = months.get(month) ?? { month, receita: 0, despesa: 0, lucro: 0 };
+    current.despesa += cost.amount;
+    current.lucro = current.receita - current.despesa;
+    months.set(month, current);
+  }
+
   return [...months.values()].slice(-7);
 }
 
@@ -736,6 +787,7 @@ function buildExpenseData(
   expenses: typeof initialExpenses,
   bankTransactions: BankTransaction[],
   commissionEntries: ReturnType<typeof calculateCommissionEntries>,
+  serviceCostEntries: ReturnType<typeof calculateServiceCostEntries>,
 ) {
   const categories = new Map<string, { name: string; value: number }>();
 
@@ -763,6 +815,16 @@ function buildExpenseData(
     categories.set("Comissões", {
       name: "Comissões",
       value: paidCommissions,
+    });
+  }
+
+  const realizedServiceCosts = serviceCostEntries
+    .filter((entry) => entry.status === "realizado")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  if (realizedServiceCosts > 0) {
+    categories.set("Custos dos serviços", {
+      name: "Custos dos serviços",
+      value: realizedServiceCosts,
     });
   }
 

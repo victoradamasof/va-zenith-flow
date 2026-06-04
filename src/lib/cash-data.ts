@@ -25,6 +25,11 @@ type CashCommission = {
   amount: number;
 };
 
+type CashServiceCost = {
+  status: string;
+  amount: number;
+};
+
 export function calculateReceivedRevenue(sales: CashSale[], receivables: CashReceivable[] = []) {
   const saleIdsWithReceivables = new Set(
     receivables.map((receivable) => receivable.sourceId).filter(Boolean),
@@ -45,10 +50,22 @@ export function calculatePaidCommissions(commissions: CashCommission[] = []) {
     .reduce((sum, commission) => sum + commission.amount, 0);
 }
 
-export function calculatePaidExpenses(expenses: CashExpense[], commissions: CashCommission[] = []) {
+export function calculateRealizedServiceCosts(serviceCosts: CashServiceCost[] = []) {
+  return serviceCosts
+    .filter((cost) => cost.status === "realizado" || cost.status === "pago" || cost.status === "paga")
+    .reduce((sum, cost) => sum + cost.amount, 0);
+}
+
+export function calculatePaidExpenses(
+  expenses: CashExpense[],
+  commissions: CashCommission[] = [],
+  serviceCosts: CashServiceCost[] = [],
+) {
   return expenses
     .filter((expense) => expense.status === "pago")
-    .reduce((sum, expense) => sum + expense.value, 0) + calculatePaidCommissions(commissions);
+    .reduce((sum, expense) => sum + expense.value, 0) +
+    calculatePaidCommissions(commissions) +
+    calculateRealizedServiceCosts(serviceCosts);
 }
 
 export function calculateCurrentCash(
@@ -58,11 +75,12 @@ export function calculateCurrentCash(
   receivables: CashReceivable[] = [],
   bankTransactions: BankTransaction[] = [],
   commissions: CashCommission[] = [],
+  serviceCosts: CashServiceCost[] = [],
 ) {
   return (
     baseCash +
     calculateReceivedRevenue(sales, receivables) -
-    calculatePaidExpenses(expenses, commissions) +
+    calculatePaidExpenses(expenses, commissions, serviceCosts) +
     calculateBankCashImpact(bankTransactions)
   );
 }

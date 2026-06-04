@@ -55,6 +55,11 @@ type Goal = {
   deadline: string;
 };
 
+type FinancialAdjustment = {
+  status: string;
+  amount: number;
+};
+
 export type AlertContext = {
   sales: Sale[];
   expenses: Expense[];
@@ -63,6 +68,8 @@ export type AlertContext = {
   receivables: Receivable[];
   cashBase: number;
   bankTransactions?: BankTransaction[];
+  commissions?: FinancialAdjustment[];
+  serviceCosts?: FinancialAdjustment[];
   today?: Date;
 };
 
@@ -76,13 +83,29 @@ export function generateSystemAlerts({
   receivables,
   cashBase,
   bankTransactions = [],
+  commissions = [],
+  serviceCosts = [],
   today = new Date(),
 }: AlertContext) {
   const alerts: SystemAlert[] = [];
   const todayStart = startOfDay(today);
-  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables, bankTransactions);
+  const currentCash = calculateCurrentCash(
+    cashBase,
+    sales,
+    expenses,
+    receivables,
+    bankTransactions,
+    commissions,
+    serviceCosts,
+  );
   const openExpenses = expenses.filter((expense) => expense.status !== "pago");
   const pendingReceivables = receivables.filter((receivable) => receivable.status === "previsto");
+  const payableCommissions = commissions
+    .filter((commission) => commission.status !== "paga")
+    .reduce((sum, commission) => sum + commission.amount, 0);
+  const pendingServiceCosts = serviceCosts
+    .filter((cost) => cost.status !== "realizado" && cost.status !== "pago" && cost.status !== "paga")
+    .reduce((sum, cost) => sum + cost.amount, 0);
   const scheduledBankOutflows = bankTransactions.filter(
     (transaction) => transaction.status === "agendado" && isBankOutflow(transaction),
   );
@@ -94,7 +117,9 @@ export function generateSystemAlerts({
     pendingReceivables.reduce((sum, receivable) => sum + receivable.amount, 0) -
     openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
     calculateScheduledBankInflows(bankTransactions) -
-    calculateScheduledBankOutflows(bankTransactions);
+    calculateScheduledBankOutflows(bankTransactions) -
+    payableCommissions -
+    pendingServiceCosts;
 
   for (const expense of openExpenses) {
     const dueDate = parseDate(expense.date, todayStart);
@@ -247,16 +272,22 @@ export function generateSystemAlerts({
   } else if (
     currentCash <
     openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
-      calculateScheduledBankOutflows(bankTransactions)
+      calculateScheduledBankOutflows(bankTransactions) +
+      payableCommissions +
+      pendingServiceCosts
   ) {
+    const commitments =
+      openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
+      calculateScheduledBankOutflows(bankTransactions) +
+      payableCommissions +
+      pendingServiceCosts;
     alerts.push({
       id: "cashflow-low-coverage",
       type: "warning",
       title: "Caixa abaixo dos compromissos",
       desc: `${formatBRL(currentCash)} em caixa para ${formatBRL(
-        openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
-          calculateScheduledBankOutflows(bankTransactions),
-      )} em despesas e pagamentos bancarios abertos`,
+        commitments,
+      )} em despesas, custos, comissoes e pagamentos bancarios abertos`,
       time: "agora",
       target: "Fluxo de Caixa",
     });

@@ -1,4 +1,5 @@
 type Sale = {
+  id?: string;
   value: number;
   status: string;
 };
@@ -12,6 +13,17 @@ type Client = {
   status: string;
 };
 
+type Receivable = {
+  sourceId?: string;
+  status: string;
+  amount: number;
+};
+
+type FinancialAdjustment = {
+  status: string;
+  amount: number;
+};
+
 type GoalLike = {
   name: string;
   current: number;
@@ -22,6 +34,9 @@ export type GoalMetricContext = {
   sales: Sale[];
   expenses: Expense[];
   clients: Client[];
+  receivables?: Receivable[];
+  commissions?: FinancialAdjustment[];
+  serviceCosts?: FinancialAdjustment[];
 };
 
 function normalize(value: string) {
@@ -34,13 +49,23 @@ function normalize(value: string) {
 export function getGoalCurrent(goal: GoalLike, context: GoalMetricContext) {
   const name = normalize(goal.name);
   const totalRevenue = context.sales.reduce((sum, sale) => sum + sale.value, 0);
-  const receivedRevenue = context.sales
-    .filter((sale) => sale.status === "pago")
-    .reduce((sum, sale) => sum + sale.value, 0);
-  const totalExpenses = context.expenses.reduce((sum, expense) => sum + expense.value, 0);
-  const paidExpenses = context.expenses
-    .filter((expense) => expense.status === "pago")
-    .reduce((sum, expense) => sum + expense.value, 0);
+  const receivedRevenue = calculateReceivedRevenue(context.sales, context.receivables ?? []);
+  const paidCommissions = (context.commissions ?? [])
+    .filter((commission) => commission.status === "paga")
+    .reduce((sum, commission) => sum + commission.amount, 0);
+  const realizedServiceCosts = (context.serviceCosts ?? [])
+    .filter((cost) => cost.status === "realizado" || cost.status === "pago" || cost.status === "paga")
+    .reduce((sum, cost) => sum + cost.amount, 0);
+  const totalExpenses =
+    context.expenses.reduce((sum, expense) => sum + expense.value, 0) +
+    (context.commissions ?? []).reduce((sum, commission) => sum + commission.amount, 0) +
+    (context.serviceCosts ?? []).reduce((sum, cost) => sum + cost.amount, 0);
+  const paidExpenses =
+    context.expenses
+      .filter((expense) => expense.status === "pago")
+      .reduce((sum, expense) => sum + expense.value, 0) +
+    paidCommissions +
+    realizedServiceCosts;
   const averageTicket = context.sales.length ? Math.round(totalRevenue / context.sales.length) : 0;
 
   if (name.includes("faturamento") || name.includes("receita total")) return totalRevenue;
@@ -62,4 +87,18 @@ export function applyGoalMetrics<T extends GoalLike>(goals: T[], context: GoalMe
     ...goal,
     current: getGoalCurrent(goal, context),
   }));
+}
+
+function calculateReceivedRevenue(sales: Sale[], receivables: Receivable[]) {
+  const saleIdsWithReceivables = new Set(
+    receivables.map((receivable) => receivable.sourceId).filter(Boolean),
+  );
+  const receivedReceivables = receivables
+    .filter((receivable) => receivable.status === "recebido")
+    .reduce((sum, receivable) => sum + receivable.amount, 0);
+  const paidSales = sales
+    .filter((sale) => sale.status === "pago" && !saleIdsWithReceivables.has(sale.id))
+    .reduce((sum, sale) => sum + sale.value, 0);
+
+  return receivedReceivables + paidSales;
 }

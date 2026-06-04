@@ -8,7 +8,15 @@ export type SmartCalendarEvent = {
   title: string;
   subtitle: string;
   amount?: number;
-  type: "expense" | "receivable" | "goal" | "sale" | "investment" | "bank";
+  type:
+    | "expense"
+    | "receivable"
+    | "goal"
+    | "sale"
+    | "investment"
+    | "bank"
+    | "service-cost"
+    | "commission";
   status: string;
 };
 
@@ -79,6 +87,8 @@ export function buildSmartEvents({
   sales,
   investments = [],
   bankTransactions = [],
+  serviceCosts = [],
+  commissions = [],
 }: {
   expenses: Array<{
     id: string;
@@ -113,6 +123,23 @@ export function buildSmartEvents({
     status: string;
   }>;
   bankTransactions?: BankTransaction[];
+  serviceCosts?: Array<{
+    id: string;
+    date: string;
+    client: string;
+    service: string;
+    amount: number;
+    status: string;
+  }>;
+  commissions?: Array<{
+    id: string;
+    seller: string;
+    service: string;
+    amount: number;
+    status: string;
+    dueDate: string;
+    paidAt?: string;
+  }>;
 }) {
   const today = getToday();
   const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12);
@@ -171,6 +198,24 @@ export function buildSmartEvents({
               ? "entrada agendada"
               : "saída agendada",
       })),
+    ...serviceCosts.map((cost) => ({
+      id: cost.id,
+      date: cost.date,
+      title: cost.client,
+      subtitle: `${cost.service} · custo do serviço`,
+      amount: cost.amount,
+      type: "service-cost" as const,
+      status: cost.status === "realizado" ? "custo realizado" : "custo previsto",
+    })),
+    ...commissions.map((commission) => ({
+      id: commission.id,
+      date: commission.paidAt ?? commission.dueDate,
+      title: commission.seller,
+      subtitle: `${commission.service} · comissão`,
+      amount: commission.amount,
+      type: "commission" as const,
+      status: commission.status === "paga" ? "comissão paga" : "comissão a pagar",
+    })),
     ...investments
       .filter((investment) => Math.max(investment.planned - investment.spent, 0) > 0)
       .map((investment) => ({
