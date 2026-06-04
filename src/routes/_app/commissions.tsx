@@ -40,7 +40,7 @@ import {
   type CommissionPayment,
 } from "@/lib/commissions";
 import { getAuthSession, type AuthSession } from "@/lib/auth";
-import { isAdmin, isOwnedBySession } from "@/lib/permissions";
+import { isAdmin, isOwnedBySession, normalizePermissionText } from "@/lib/permissions";
 import { formatLocalDateBR, todayLocalISODate } from "@/lib/date-utils";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
@@ -63,6 +63,15 @@ const statusClasses: Record<CommissionEntry["status"], string> = {
   a_pagar: "bg-warning/15 text-warning hover:bg-warning/15",
   prevista: "bg-info/15 text-info hover:bg-info/15",
 };
+
+function hasFinancialAccess(session: AuthSession | null) {
+  const role = normalizePermissionText(session?.role);
+  return role === "administrador" || role === "financeiro";
+}
+
+function canViewEveryCommission(session: AuthSession | null) {
+  return hasFinancialAccess(session);
+}
 
 function Commissions() {
   const [sales] = usePersistentState("va-manager:sales", initialSales);
@@ -90,6 +99,9 @@ function Commissions() {
     };
   }, []);
 
+  const canManagePayments = hasFinancialAccess(session);
+  const canViewAll = canViewEveryCommission(session);
+
   const commissionEntries = useMemo(
     () =>
       calculateCommissionEntries({
@@ -102,13 +114,13 @@ function Commissions() {
   );
 
   const visibleEntries = useMemo(() => {
-    const ownedEntries = isAdmin(session)
+    const scopedEntries = canViewAll
       ? commissionEntries
       : commissionEntries.filter((entry) => isOwnedBySession(entry.seller, session));
     const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
-    if (!normalizedQuery) return ownedEntries;
+    if (!normalizedQuery) return scopedEntries;
 
-    return ownedEntries.filter((entry) =>
+    return scopedEntries.filter((entry) =>
       [
         entry.saleDate,
         entry.dueDate,
@@ -122,7 +134,7 @@ function Commissions() {
         .toLocaleLowerCase("pt-BR")
         .includes(normalizedQuery),
     );
-  }, [commissionEntries, query, session]);
+  }, [canViewAll, commissionEntries, query, session]);
 
   const summary = calculateCommissionSummary(visibleEntries);
   const collaboratorsByName = useMemo(() => buildCollaboratorMap(collaborators), [collaborators]);
@@ -132,6 +144,11 @@ function Commissions() {
   );
 
   const markAsPaid = (entry: CommissionEntry) => {
+    if (!canManagePayments) {
+      toast.warning("Seu acesso permite visualizar apenas suas comissões.");
+      return;
+    }
+
     if (entry.status === "prevista") {
       toast.warning("Essa comissão ainda depende do recebimento do cliente.");
       return;
@@ -141,10 +158,15 @@ function Commissions() {
       if (current.some((payment) => payment.id === entry.id)) return current;
       return [{ id: entry.id, paidAt: todayLocalISODate() }, ...current];
     });
-    toast.success("Comissão marcada como paga e abatida do caixa.");
+    toast.success("Comissão marcada como paga.");
   };
 
   const markAsPayable = (entry: CommissionEntry) => {
+    if (!canManagePayments) {
+      toast.warning("Seu acesso permite visualizar apenas suas comissões.");
+      return;
+    }
+
     setCommissionPayments((current) => current.filter((payment) => payment.id !== entry.id));
     toast.success("Comissão voltou para a pagar.");
   };
@@ -174,7 +196,9 @@ function Commissions() {
         statusLabels[entry.status],
       ]),
     ];
-    const csv = rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(",")).join("\n");
+    const csv = rows
+      .map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(","))
+      .join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -188,7 +212,11 @@ function Commissions() {
     <div className="space-y-6">
       <PageHeader
         title="Comissionamento"
-        subtitle="Comissões por vendedor conectadas a vendas, recebíveis, financeiro e caixa"
+        subtitle={
+          canManagePayments
+            ? "Comissões por vendedor conectadas a vendas, recebíveis e financeiro"
+            : "Acompanhe somente suas próprias comissões e recebimentos liberados"
+        }
         action={
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="mr-2 h-4 w-4" />
@@ -210,14 +238,14 @@ function Commissions() {
           value={formatBRL(summary.paid)}
           icon={CheckCircle2}
           accent="success"
-          hint="já abatidas do caixa"
+          hint={canManagePayments ? "pagamento registrado" : "já registradas"}
         />
         <KpiCard
           label="A pagar"
           value={formatBRL(summary.payable)}
           icon={WalletCards}
           accent="warning"
-          hint="obrigações liberadas"
+          hint="liberadas"
         />
         <KpiCard
           label="Previstas"
@@ -233,8 +261,9 @@ function Commissions() {
           <div className="mb-4">
             <h3 className="font-display text-lg font-semibold">Regras de comissão</h3>
             <p className="text-sm text-muted-foreground">
-              O cálculo usa vendas e recebíveis em tempo real. Ao pagar comissão, o caixa reduz
-              automaticamente na Gestão Financeira e no Fluxo de Caixa.
+              {canManagePayments
+                ? "O cálculo usa vendas e recebíveis em tempo real. Ao registrar pagamento, o financeiro é atualizado automaticamente."
+                : "O cálculo usa suas vendas e recebíveis em tempo real. Você visualiza apenas as comissões vinculadas ao seu usuário."}
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -258,13 +287,17 @@ function Commissions() {
         <Card className="border-border/60 bg-card/60 p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="font-display text-lg font-semibold">Resumo por vendedor</h3>
+              <h3 className="font-display text-lg font-semibold">
+                {canViewAll ? "Resumo por vendedor" : "Meu resumo"}
+              </h3>
               <p className="text-sm text-muted-foreground">
-                Ranking financeiro de comissões da base atual.
+                {canViewAll
+                  ? "Ranking de comissões da base atual."
+                  : "Totais calculados apenas sobre suas vendas."}
               </p>
             </div>
             <Badge variant="outline" className="border-border/60">
-              {sellerRows.length} vendedores
+              {canViewAll ? `${sellerRows.length} vendedores` : "Acesso individual"}
             </Badge>
           </div>
           <div className="space-y-3">
@@ -326,7 +359,7 @@ function Commissions() {
                 <TableHead className="text-right">Venda</TableHead>
                 <TableHead className="text-right">Comissão</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
+                {canManagePayments && <TableHead className="text-right">Ações</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -359,33 +392,40 @@ function Commissions() {
                       {formatBRL(entry.amount)}
                     </TableCell>
                     <TableCell>
-                      <Badge className={statusClasses[entry.status]}>{statusLabels[entry.status]}</Badge>
+                      <Badge className={statusClasses[entry.status]}>
+                        {statusLabels[entry.status]}
+                      </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        {entry.status === "paga" ? (
-                          <Button variant="ghost" size="sm" onClick={() => markAsPayable(entry)}>
-                            <Undo2 className="mr-2 h-4 w-4" />
-                            Voltar
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={entry.status === "prevista"}
-                            onClick={() => markAsPaid(entry)}
-                          >
-                            Pagar
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
+                    {canManagePayments && (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {entry.status === "paga" ? (
+                            <Button variant="ghost" size="sm" onClick={() => markAsPayable(entry)}>
+                              <Undo2 className="mr-2 h-4 w-4" />
+                              Voltar
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={entry.status === "prevista"}
+                              onClick={() => markAsPaid(entry)}
+                            >
+                              Pagar
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
               {visibleEntries.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
+                  <TableCell
+                    colSpan={canManagePayments ? 9 : 8}
+                    className="py-8 text-center text-sm text-muted-foreground"
+                  >
                     Nenhuma comissão encontrada para a busca atual.
                   </TableCell>
                 </TableRow>
