@@ -48,12 +48,19 @@ import {
   expenseCategories,
   sales as initialSales,
   sellers as initialSellers,
+  services as initialServices,
   formatBRL,
 } from "@/lib/mock-data";
 import { buildCollaboratorMap, normalizeCollaboratorName } from "@/lib/collaborators";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { filterSaleReceivables } from "@/lib/data-sync";
+import {
+  calculateCommissionEntries,
+  calculatePayableCommissions,
+  commissionPaymentsKey,
+  type CommissionPayment,
+} from "@/lib/commissions";
 import {
   calculateCurrentCash,
   calculatePaidExpenses,
@@ -93,6 +100,9 @@ const statusBadge = (status: string) => {
     realizado: "bg-success/15 text-success",
     agendado: "bg-info/15 text-info",
     cancelado: "bg-muted text-muted-foreground",
+    paga: "bg-success/15 text-success",
+    a_pagar: "bg-warning/15 text-warning",
+    prevista: "bg-info/15 text-info",
   };
   return map[status] ?? "bg-muted text-muted-foreground";
 };
@@ -148,6 +158,11 @@ function Financial() {
   const [collaborators] = usePersistentState<Collaborator[]>(
     "va-manager:collaborators",
     initialSellers,
+  );
+  const [services] = usePersistentState("va-manager:services", initialServices);
+  const [commissionPayments, setCommissionPayments] = usePersistentState<CommissionPayment[]>(
+    commissionPaymentsKey,
+    [],
   );
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
   const [bankTransactions, setBankTransactions] = usePersistentState<BankTransaction[]>(
@@ -247,24 +262,57 @@ function Financial() {
     () => new Set(saleReceivables.map((receivable) => receivable.sourceId)),
     [saleReceivables],
   );
+  const commissionEntries = useMemo(
+    () =>
+      calculateCommissionEntries({
+        sales,
+        services,
+        receivables,
+        payments: commissionPayments,
+      }),
+    [commissionPayments, receivables, sales, services],
+  );
+  const filteredCommissions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return commissionEntries;
+
+    return commissionEntries.filter((entry) =>
+      [
+        entry.saleDate,
+        entry.dueDate,
+        entry.client,
+        entry.seller,
+        entry.service,
+        entry.label,
+        entry.status,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [commissionEntries, query]);
+  const payableCommissions = calculatePayableCommissions(commissionEntries);
   const bankInflows = calculateBankInflows(bankTransactions);
   const bankOutflows = calculateBankOutflows(bankTransactions);
   const scheduledBankInflows = calculateScheduledBankInflows(bankTransactions);
   const scheduledBankOutflows = calculateScheduledBankOutflows(bankTransactions);
   const bankCashImpact = bankInflows - bankOutflows;
   const totalReceitas = calculateReceivedRevenue(sales, receivables) + bankInflows;
-  const totalDespesas = calculatePaidExpenses(expenses) + bankOutflows;
+  const totalDespesas = calculatePaidExpenses(expenses, commissionEntries) + bankOutflows;
   const currentCash = calculateCurrentCash(
     cashBase,
     sales,
     expenses,
     receivables,
     bankTransactions,
+    commissionEntries,
   );
   const aPagar =
     expenses
       .filter((expense) => expense.status === "pendente" || expense.status === "atrasado")
-      .reduce((sum, expense) => sum + expense.value, 0) + scheduledBankOutflows;
+      .reduce((sum, expense) => sum + expense.value, 0) +
+    scheduledBankOutflows +
+    payableCommissions;
   const aReceber =
     receivables
       .filter((receivable) => receivable.status === "previsto")
@@ -416,6 +464,26 @@ function Financial() {
     }
 
     toast.success(status === "recebido" ? "Receita marcada como recebida." : "Receita prevista.");
+  };
+
+  const markCommissionAsPaid = (id: string) => {
+    const target = commissionEntries.find((entry) => entry.id === id);
+    if (!target) return;
+    if (target.status === "prevista") {
+      toast.warning("Essa comissão ainda depende do recebimento do cliente.");
+      return;
+    }
+
+    setCommissionPayments((current) => {
+      if (current.some((payment) => payment.id === id)) return current;
+      return [{ id, paidAt: todayLocalISODate() }, ...current];
+    });
+    toast.success("Comissão marcada como paga e abatida do caixa.");
+  };
+
+  const markCommissionAsPayable = (id: string) => {
+    setCommissionPayments((current) => current.filter((payment) => payment.id !== id));
+    toast.success("Comissão voltou para a pagar.");
   };
 
   const updateBankTransactionStatus = (id: string, status: BankTransactionStatus) => {
@@ -719,6 +787,7 @@ function Financial() {
               <TabsTrigger value="despesas">Despesas</TabsTrigger>
               <TabsTrigger value="receitas">Receitas</TabsTrigger>
               <TabsTrigger value="previsivel">Receita previsível</TabsTrigger>
+              <TabsTrigger value="comissoes">Comissões</TabsTrigger>
               <TabsTrigger value="caixa">Caixa</TabsTrigger>
               <TabsTrigger value="banco">Banco/C6</TabsTrigger>
               <TabsTrigger value="categorias">Categorias</TabsTrigger>
@@ -972,6 +1041,104 @@ function Financial() {
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nenhuma receita previsível encontrada.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="comissoes" className="mt-0">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Comissões liberadas entram em a pagar. Comissões pagas reduzem o caixa
+                automaticamente.
+              </p>
+              <Badge variant="outline" className="border-border/60">
+                {formatBRL(payableCommissions)} a pagar
+              </Badge>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border/60">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead>Vencimento</TableHead>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Serviço</TableHead>
+                    <TableHead>Gatilho</TableHead>
+                    <TableHead className="text-right">Comissão</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredCommissions.map((entry) => {
+                    const seller = collaboratorsByName.get(
+                      normalizeCollaboratorName(entry.seller),
+                    ) ?? {
+                      name: entry.seller,
+                    };
+
+                    return (
+                      <TableRow key={entry.id} className="hover:bg-muted/30">
+                        <TableCell className="text-muted-foreground">
+                          {formatLocalDateBR(entry.dueDate)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <CollaboratorAvatar person={seller} className="h-7 w-7 text-[11px]" />
+                            <span className="text-muted-foreground">{entry.seller}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium">{entry.client}</TableCell>
+                        <TableCell>{entry.service}</TableCell>
+                        <TableCell className="text-muted-foreground">{entry.label}</TableCell>
+                        <TableCell className="text-right font-medium tabular-nums text-primary">
+                          {formatBRL(entry.amount)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={`${statusBadge(entry.status)} hover:${statusBadge(entry.status)}`}
+                          >
+                            {entry.status === "a_pagar"
+                              ? "A pagar"
+                              : entry.status === "paga"
+                                ? "Paga"
+                                : "Prevista"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={entry.status === "prevista"}
+                              onClick={() => markCommissionAsPaid(entry.id)}
+                            >
+                              Pagar
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={entry.status !== "paga"}
+                              onClick={() => markCommissionAsPayable(entry.id)}
+                            >
+                              Voltar
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {filteredCommissions.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={8}
+                        className="py-8 text-center text-sm text-muted-foreground"
+                      >
+                        Nenhuma comissão encontrada.
                       </TableCell>
                     </TableRow>
                   )}

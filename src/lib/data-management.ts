@@ -21,6 +21,7 @@ import {
   defaultBankConnection,
   initialBankTransactions,
 } from "@/lib/bank-data";
+import { commissionPaymentsKey } from "@/lib/commissions";
 
 export const dataKeys = [
   "va-manager:sales",
@@ -38,6 +39,7 @@ export const dataKeys = [
   bankConnectionKey,
   cashBalanceKey,
   investmentContributionKey,
+  commissionPaymentsKey,
 ] as const;
 
 export type DataKey = (typeof dataKeys)[number];
@@ -58,6 +60,7 @@ export const emptyData: Record<DataKey, unknown> = {
   [bankConnectionKey]: defaultBankConnection,
   [cashBalanceKey]: defaultCashBalance,
   [investmentContributionKey]: defaultInvestmentContribution,
+  [commissionPaymentsKey]: [],
 };
 
 export const demoData: Partial<Record<DataKey, unknown>> = {
@@ -76,6 +79,7 @@ export const demoData: Partial<Record<DataKey, unknown>> = {
   [bankConnectionKey]: defaultBankConnection,
   [cashBalanceKey]: defaultCashBalance,
   [investmentContributionKey]: defaultInvestmentContribution,
+  [commissionPaymentsKey]: [],
 };
 
 export function replaceLocalData(data: Partial<Record<DataKey, unknown>>) {

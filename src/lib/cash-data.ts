@@ -20,6 +20,11 @@ type CashReceivable = {
   amount: number;
 };
 
+type CashCommission = {
+  status: string;
+  amount: number;
+};
+
 export function calculateReceivedRevenue(sales: CashSale[], receivables: CashReceivable[] = []) {
   const saleIdsWithReceivables = new Set(
     receivables.map((receivable) => receivable.sourceId).filter(Boolean),
@@ -34,10 +39,16 @@ export function calculateReceivedRevenue(sales: CashSale[], receivables: CashRec
   return receivedReceivables + paidSales;
 }
 
-export function calculatePaidExpenses(expenses: CashExpense[]) {
+export function calculatePaidCommissions(commissions: CashCommission[] = []) {
+  return commissions
+    .filter((commission) => commission.status === "paga")
+    .reduce((sum, commission) => sum + commission.amount, 0);
+}
+
+export function calculatePaidExpenses(expenses: CashExpense[], commissions: CashCommission[] = []) {
   return expenses
     .filter((expense) => expense.status === "pago")
-    .reduce((sum, expense) => sum + expense.value, 0);
+    .reduce((sum, expense) => sum + expense.value, 0) + calculatePaidCommissions(commissions);
 }
 
 export function calculateCurrentCash(
@@ -46,11 +57,12 @@ export function calculateCurrentCash(
   expenses: CashExpense[],
   receivables: CashReceivable[] = [],
   bankTransactions: BankTransaction[] = [],
+  commissions: CashCommission[] = [],
 ) {
   return (
     baseCash +
     calculateReceivedRevenue(sales, receivables) -
-    calculatePaidExpenses(expenses) +
+    calculatePaidExpenses(expenses, commissions) +
     calculateBankCashImpact(bankTransactions)
   );
 }

@@ -44,6 +44,7 @@ import {
   insights,
   sales as initialSales,
   sellers as initialSellers,
+  services as initialServices,
 } from "@/lib/mock-data";
 import { buildCollaboratorMap, normalizeCollaboratorName } from "@/lib/collaborators";
 import { usePersistentState } from "@/hooks/use-persistent-state";
@@ -52,10 +53,17 @@ import { applyGoalMetrics } from "@/lib/goal-metrics";
 import { filterSaleReceivables } from "@/lib/data-sync";
 import {
   calculateCurrentCash,
+  calculatePaidExpenses,
   calculateReceivedRevenue,
   cashBalanceKey,
   defaultCashBalance,
 } from "@/lib/cash-data";
+import {
+  calculateCommissionEntries,
+  calculatePayableCommissions,
+  commissionPaymentsKey,
+  type CommissionPayment,
+} from "@/lib/commissions";
 import {
   bankTransactionsKey,
   calculateBankInflows,
@@ -98,6 +106,11 @@ function Dashboard() {
     "va-manager:collaborators",
     initialSellers,
   );
+  const [services] = usePersistentState("va-manager:services", initialServices);
+  const [commissionPayments] = usePersistentState<CommissionPayment[]>(
+    commissionPaymentsKey,
+    [],
+  );
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
   const [bankTransactions] = usePersistentState<BankTransaction[]>(
     bankTransactionsKey,
@@ -125,6 +138,16 @@ function Dashboard() {
     () => new Set(saleReceivables.map((receivable) => receivable.sourceId)),
     [saleReceivables],
   );
+  const commissionEntries = useMemo(
+    () =>
+      calculateCommissionEntries({
+        sales,
+        services,
+        receivables,
+        payments: commissionPayments,
+      }),
+    [commissionPayments, receivables, sales, services],
+  );
 
   const bankInflows = calculateBankInflows(bankTransactions);
   const bankOutflows = calculateBankOutflows(bankTransactions);
@@ -140,14 +163,22 @@ function Dashboard() {
       .filter((sale) => sale.status !== "pago" && !saleIdsWithReceivables.has(sale.id))
       .reduce((sum, sale) => sum + sale.value, 0) +
     scheduledBankInflows;
-  const paidExpenses = expenses
-    .filter((expense) => expense.status === "pago")
-    .reduce((sum, expense) => sum + expense.value, 0) + bankOutflows;
+  const paidExpenses = calculatePaidExpenses(expenses, commissionEntries) + bankOutflows;
+  const payableCommissions = calculatePayableCommissions(commissionEntries);
   const openExpenses = expenses
     .filter((expense) => expense.status !== "pago")
-    .reduce((sum, expense) => sum + expense.value, 0) + scheduledBankOutflows;
+    .reduce((sum, expense) => sum + expense.value, 0) +
+    scheduledBankOutflows +
+    payableCommissions;
   const profit = paidRevenue - paidExpenses;
-  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables, bankTransactions);
+  const currentCash = calculateCurrentCash(
+    cashBase,
+    sales,
+    expenses,
+    receivables,
+    bankTransactions,
+    commissionEntries,
+  );
   const balance = currentCash + pendingRevenue - openExpenses;
   const averageTicket = sales.length ? Math.round(totalRevenue / sales.length) : 0;
   const delinquentClients = clients.filter((client) => client.status === "inadimplente").length;
@@ -156,9 +187,9 @@ function Dashboard() {
   const goalCurrent = meta?.current ?? 0;
   const goalPct = goalTarget ? Math.min(100, Math.round((goalCurrent / goalTarget) * 100)) : 0;
 
-  const monthlyData = buildMonthlyData(sales, expenses, bankTransactions);
+  const monthlyData = buildMonthlyData(sales, expenses, bankTransactions, commissionEntries);
   const dailyData = buildDailyData(sales);
-  const expenseData = buildExpenseData(expenses, bankTransactions);
+  const expenseData = buildExpenseData(expenses, bankTransactions, commissionEntries);
   const serviceRanking = buildRanking(sales, "service");
   const collaboratorsByName = useMemo(() => buildCollaboratorMap(collaborators), [collaborators]);
   const sellerRanking = buildRanking(sales, "seller").map((row) => {
@@ -638,6 +669,7 @@ function buildMonthlyData(
   sales: typeof initialSales,
   expenses: typeof initialExpenses,
   bankTransactions: BankTransaction[],
+  commissionEntries: ReturnType<typeof calculateCommissionEntries>,
 ) {
   const months = new Map<
     string,
@@ -673,6 +705,14 @@ function buildMonthlyData(
     months.set(month, current);
   }
 
+  for (const commission of commissionEntries.filter((entry) => entry.status === "paga")) {
+    const month = formatLocalDateBR(commission.paidAt ?? commission.dueDate, { month: "short" });
+    const current = months.get(month) ?? { month, receita: 0, despesa: 0, lucro: 0 };
+    current.despesa += commission.amount;
+    current.lucro = current.receita - current.despesa;
+    months.set(month, current);
+  }
+
   return [...months.values()].slice(-7);
 }
 
@@ -692,7 +732,11 @@ function buildDailyData(sales: typeof initialSales) {
   return [...days.values()].slice(-10);
 }
 
-function buildExpenseData(expenses: typeof initialExpenses, bankTransactions: BankTransaction[]) {
+function buildExpenseData(
+  expenses: typeof initialExpenses,
+  bankTransactions: BankTransaction[],
+  commissionEntries: ReturnType<typeof calculateCommissionEntries>,
+) {
   const categories = new Map<string, { name: string; value: number }>();
 
   for (const expense of expenses) {
@@ -710,6 +754,16 @@ function buildExpenseData(expenses: typeof initialExpenses, bankTransactions: Ba
     };
     current.value += transaction.amount;
     categories.set(transaction.category, current);
+  }
+
+  const paidCommissions = commissionEntries
+    .filter((entry) => entry.status === "paga")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  if (paidCommissions > 0) {
+    categories.set("Comissões", {
+      name: "Comissões",
+      value: paidCommissions,
+    });
   }
 
   return [...categories.values()].sort((a, b) => b.value - a.value).slice(0, 6);

@@ -16,11 +16,21 @@ import {
   YAxis,
 } from "recharts";
 import { ArrowDownCircle, ArrowUpCircle, Download, TrendingUp, Wallet } from "lucide-react";
-import { expenses as initialExpenses, formatBRL, sales as initialSales } from "@/lib/mock-data";
+import {
+  expenses as initialExpenses,
+  formatBRL,
+  sales as initialSales,
+  services as initialServices,
+} from "@/lib/mock-data";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { filterSaleReceivables } from "@/lib/data-sync";
 import { calculateCurrentCash, cashBalanceKey, defaultCashBalance } from "@/lib/cash-data";
+import {
+  calculateCommissionEntries,
+  commissionPaymentsKey,
+  type CommissionPayment,
+} from "@/lib/commissions";
 import {
   bankTransactionsKey,
   initialBankTransactions,
@@ -50,6 +60,11 @@ function CashFlow() {
   const [period, setPeriod] = useState<keyof typeof periods>("mes");
   const [sales] = usePersistentState("va-manager:sales", initialSales);
   const [expenses] = usePersistentState("va-manager:expenses", initialExpenses);
+  const [services] = usePersistentState("va-manager:services", initialServices);
+  const [commissionPayments] = usePersistentState<CommissionPayment[]>(
+    commissionPaymentsKey,
+    [],
+  );
   const [receivables] = useSyncedReceivables({ sales });
   const [bankTransactions] = usePersistentState<BankTransaction[]>(
     bankTransactionsKey,
@@ -81,6 +96,16 @@ function CashFlow() {
     () => new Set(saleReceivables.map((receivable) => receivable.sourceId)),
     [saleReceivables],
   );
+  const commissionEntries = useMemo(
+    () =>
+      calculateCommissionEntries({
+        sales,
+        services,
+        receivables,
+        payments: commissionPayments,
+      }),
+    [commissionPayments, receivables, sales, services],
+  );
 
   const paidSalesInPeriod = filteredSales.filter(
     (sale) => isPaid(sale.status) && !saleIdsWithReceivables.has(sale.id),
@@ -108,6 +133,14 @@ function CashFlow() {
   const scheduledBankOutflows = filteredBankTransactions.filter(
     (transaction) => transaction.status === "agendado" && isBankOutflow(transaction),
   );
+  const paidCommissionsInPeriod = commissionEntries.filter(
+    (commission) =>
+      commission.status === "paga" &&
+      parseLocalDate(commission.paidAt ?? commission.dueDate) >= start,
+  );
+  const payableCommissionsInPeriod = commissionEntries.filter(
+    (commission) => commission.status === "a_pagar" && parseLocalDate(commission.dueDate) >= start,
+  );
 
   const entradas =
     paidSalesInPeriod.reduce((sum, sale) => sum + sale.value, 0) +
@@ -115,8 +148,16 @@ function CashFlow() {
     realizedBankInflows.reduce((sum, transaction) => sum + transaction.amount, 0);
   const saidas =
     paidExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0) +
-    realizedBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0);
-  const currentCash = calculateCurrentCash(cashBase, sales, expenses, receivables, bankTransactions);
+    realizedBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0) +
+    paidCommissionsInPeriod.reduce((sum, commission) => sum + commission.amount, 0);
+  const currentCash = calculateCurrentCash(
+    cashBase,
+    sales,
+    expenses,
+    receivables,
+    bankTransactions,
+    commissionEntries,
+  );
   const saldoInicial = currentCash - entradas + saidas;
   const saldoFinal = saldoInicial + entradas - saidas;
 
@@ -126,7 +167,8 @@ function CashFlow() {
     scheduledBankInflows.reduce((sum, transaction) => sum + transaction.amount, 0);
   const saidasPrevistas =
     pendingExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0) +
-    scheduledBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0);
+    scheduledBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0) +
+    payableCommissionsInPeriod.reduce((sum, commission) => sum + commission.amount, 0);
   const saldoProjetado = saldoFinal + entradasPrevistas - saidasPrevistas;
   const safeMinimum = Math.max(3000, Math.round(Math.max(currentCash, 1) * 0.2));
 
@@ -140,6 +182,7 @@ function CashFlow() {
     0,
     ...paidExpensesInPeriod.map((expense) => expense.value),
     ...realizedBankOutflows.map((transaction) => transaction.amount),
+    ...paidCommissionsInPeriod.map((commission) => commission.amount),
   );
 
   const chartData = useMemo(() => {
@@ -170,6 +213,14 @@ function CashFlow() {
             isPaid(expense.status) && expense.date <= key && parseLocalDate(expense.date) >= start,
         )
         .reduce((sum, expense) => sum + expense.value, 0);
+      const realizedCommissions = commissionEntries
+        .filter(
+          (commission) =>
+            commission.status === "paga" &&
+            (commission.paidAt ?? commission.dueDate) <= key &&
+            parseLocalDate(commission.paidAt ?? commission.dueDate) >= start,
+        )
+        .reduce((sum, commission) => sum + commission.amount, 0);
       const realizedBank = bankTransactions
         .filter(
           (transaction) =>
@@ -183,7 +234,12 @@ function CashFlow() {
           0,
         );
       const saldo =
-        saldoInicial + realizedSales + realizedReceivables + realizedBank - realizedExpenses;
+        saldoInicial +
+        realizedSales +
+        realizedReceivables +
+        realizedBank -
+        realizedExpenses -
+        realizedCommissions;
 
       const projectedSales = sales
         .filter(
@@ -208,6 +264,14 @@ function CashFlow() {
             !isPaid(expense.status) && expense.date <= key && parseLocalDate(expense.date) >= start,
         )
         .reduce((sum, expense) => sum + expense.value, 0);
+      const projectedCommissions = commissionEntries
+        .filter(
+          (commission) =>
+            commission.status === "a_pagar" &&
+            commission.dueDate <= key &&
+            parseLocalDate(commission.dueDate) >= start,
+        )
+        .reduce((sum, commission) => sum + commission.amount, 0);
       const projectedBank = bankTransactions
         .filter(
           (transaction) =>
@@ -252,12 +316,26 @@ function CashFlow() {
                 isBankOutflow(transaction) &&
                 transaction.date === key,
             )
-            .reduce((sum, transaction) => sum + transaction.amount, 0),
-        projecao: saldo + projectedSales + projectedReceivables - projectedExpenses + projectedBank,
+            .reduce((sum, transaction) => sum + transaction.amount, 0) +
+          commissionEntries
+            .filter(
+              (commission) =>
+                commission.status === "paga" &&
+                (commission.paidAt ?? commission.dueDate) === key,
+            )
+            .reduce((sum, commission) => sum + commission.amount, 0),
+        projecao:
+          saldo +
+          projectedSales +
+          projectedReceivables -
+          projectedExpenses -
+          projectedCommissions +
+          projectedBank,
       };
     });
   }, [
     bankTransactions,
+    commissionEntries,
     days,
     expenses,
     receivables,
@@ -421,7 +499,7 @@ function CashFlow() {
         <CashCard
           title="Maior saida"
           value={biggestOutflow}
-          subtitle={`${paidExpensesInPeriod.length + realizedBankOutflows.length} saidas realizadas`}
+          subtitle={`${paidExpensesInPeriod.length + realizedBankOutflows.length + paidCommissionsInPeriod.length} saidas realizadas`}
         />
         <CashCard
           title="Saldo projetado"

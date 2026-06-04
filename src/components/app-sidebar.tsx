@@ -17,6 +17,7 @@ import {
   Trophy,
   FileText,
   Banknote,
+  BadgeDollarSign,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -60,6 +61,7 @@ const groups = [
       { title: "Clientes", url: "/clients", icon: Users },
       { title: "Contratos", url: "/contracts", icon: FileText },
       { title: "Ranking", url: "/ranking", icon: Trophy },
+      { title: "Comissões", url: "/commissions", icon: BadgeDollarSign },
       { title: "Serviços", url: "/services", icon: Briefcase },
       { title: "Metas", url: "/goals", icon: Target },
     ],
