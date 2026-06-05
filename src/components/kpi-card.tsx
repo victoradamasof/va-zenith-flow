@@ -22,7 +22,7 @@ export function KpiCard({
   const accentBg = {
     primary: "bg-muted/60 text-muted-foreground transition group-hover:bg-primary/10 group-hover:text-primary",
     success: "bg-success/10 text-success",
-    warning: "bg-warning/15 text-warning",
+    warning: "bg-muted/60 text-muted-foreground transition group-hover:bg-warning/15 group-hover:text-warning",
     info: "bg-info/10 text-info",
     destructive: "bg-destructive/10 text-destructive",
   }[accent];

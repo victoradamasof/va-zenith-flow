@@ -21,8 +21,8 @@ const StatItem = ({
   icon: React.ElementType;
   label: string;
 }) => (
-  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-    <Icon className="h-3.5 w-3.5 text-primary" />
+  <div className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
+    <Icon className="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-primary" />
     <span>{label}</span>
   </div>
 );
@@ -41,15 +41,15 @@ export function InteractiveBrokerCard({
   return (
     <div
       className={cn(
-        "relative flex w-full flex-col items-center gap-8 overflow-hidden rounded-2xl border border-primary/20 bg-card/65 p-6 text-card-foreground shadow-glow backdrop-blur md:flex-row md:justify-between md:gap-12 md:p-8",
+        "group relative flex w-full flex-col items-center gap-8 overflow-hidden rounded-2xl border border-border/60 bg-card/65 p-6 text-card-foreground shadow-elegant backdrop-blur transition-all hover:border-primary/25 hover:shadow-glow md:flex-row md:justify-between md:gap-12 md:p-8",
         className,
       )}
     >
-      <div className="pointer-events-none absolute right-0 top-1/2 h-[350px] w-[350px] -translate-y-1/2 translate-x-1/2 rounded-full bg-[radial-gradient(circle,color-mix(in_oklab,var(--primary)_28%,transparent)_0%,transparent_68%)]" />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_oklab,var(--primary)_10%,transparent),transparent_38%)]" />
+      <div className="pointer-events-none absolute right-0 top-1/2 h-[350px] w-[350px] -translate-y-1/2 translate-x-1/2 rounded-full bg-[radial-gradient(circle,color-mix(in_oklab,var(--primary)_8%,transparent)_0%,transparent_68%)] opacity-70 transition-opacity group-hover:opacity-100" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_oklab,white_4%,transparent),transparent_38%)] transition-colors group-hover:bg-[linear-gradient(135deg,color-mix(in_oklab,var(--primary)_8%,transparent),transparent_38%)]" />
 
       <div className="relative z-10 flex flex-col items-center text-center md:items-start md:text-left">
-        <p className="text-xs font-medium uppercase tracking-[0.28em] text-primary/80">Sistema conectado</p>
+        <p className="text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground transition-colors group-hover:text-primary/85">Sistema conectado</p>
         <h2 className="mt-2 font-display text-3xl font-bold tracking-tight">{name}</h2>
         <p className="mt-2 max-w-xl text-sm text-muted-foreground">
           Módulos ativos: {tradableAssets.join(", ")}
@@ -62,8 +62,10 @@ export function InteractiveBrokerCard({
                 <Star
                   key={index}
                   className={cn(
-                    "h-4 w-4",
-                    index < Math.floor(rating) ? "text-primary" : "text-muted-foreground/45",
+                    "h-4 w-4 transition-colors",
+                    index < Math.floor(rating)
+                      ? "text-muted-foreground/70 group-hover:text-primary"
+                      : "text-muted-foreground/45",
                   )}
                   fill="currentColor"
                 />
@@ -87,13 +89,13 @@ export function InteractiveBrokerCard({
 
       <div className="relative z-10 flex-shrink-0 [perspective:800px]">
         <div className="group relative h-44 w-44 transition-transform duration-500 ease-in-out [transform-style:preserve-3d] hover:[transform:rotateY(-20deg)_rotateX(15deg)_scale(1.05)] md:h-52 md:w-52">
-          <div className="absolute h-full w-full rounded-3xl bg-primary/15 transition-transform duration-500 ease-in-out group-hover:[transform:translateZ(-28px)]" />
-          <div className="absolute h-full w-full rounded-3xl bg-primary/10 transition-transform duration-500 ease-in-out group-hover:[transform:translateZ(-14px)]" />
-          <div className="absolute flex h-full w-full items-center justify-center rounded-3xl border border-primary/30 bg-black shadow-2xl transition-transform duration-500 ease-in-out [transform:translateZ(0)]">
+          <div className="absolute h-full w-full rounded-3xl bg-muted/20 transition duration-500 ease-in-out group-hover:bg-primary/15 group-hover:[transform:translateZ(-28px)]" />
+          <div className="absolute h-full w-full rounded-3xl bg-muted/10 transition duration-500 ease-in-out group-hover:bg-primary/10 group-hover:[transform:translateZ(-14px)]" />
+          <div className="absolute flex h-full w-full items-center justify-center rounded-3xl border border-border/70 bg-black shadow-2xl transition duration-500 ease-in-out group-hover:border-primary/30 [transform:translateZ(0)]">
             <img
               src={logoSrc}
               alt={`${name} logo`}
-              className="h-2/3 w-2/3 object-contain drop-shadow-[0_0_24px_color-mix(in_oklab,var(--primary)_42%,transparent)]"
+              className="h-2/3 w-2/3 object-contain transition duration-500 group-hover:drop-shadow-[0_0_24px_color-mix(in_oklab,var(--primary)_42%,transparent)]"
               draggable={false}
             />
           </div>

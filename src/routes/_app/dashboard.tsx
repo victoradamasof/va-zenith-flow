@@ -279,8 +279,8 @@ function Dashboard() {
       />
 
       <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
-        <Card className="flex items-center gap-3 border-warning/30 bg-warning/5 p-4">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-warning/15 text-warning">
+        <Card className="group flex items-center gap-3 border-border/60 bg-card/60 p-4 transition hover:border-warning/30 hover:bg-warning/5">
+          <div className="grid h-9 w-9 place-items-center rounded-lg bg-muted/55 text-muted-foreground transition group-hover:bg-warning/15 group-hover:text-warning">
             <AlertTriangle className="h-4 w-4" />
           </div>
           <div className="flex-1">
@@ -387,11 +387,11 @@ function Dashboard() {
         />
         <Card className="border-border/60 bg-card/60 p-5 lg:col-span-2">
           <div className="grid h-full gap-4 md:grid-cols-3">
-            <div className="rounded-xl border border-primary/20 bg-primary/10 p-4">
+            <div className="group rounded-xl border border-border/60 bg-background/35 p-4 transition hover:border-primary/25 hover:bg-primary/5">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Caixa atual
               </p>
-              <p className="mt-3 font-display text-2xl font-semibold text-gradient-primary">
+              <p className="mt-3 font-display text-2xl font-semibold transition-colors group-hover:text-primary">
                 {formatBRL(currentCash)}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -600,7 +600,7 @@ function Dashboard() {
 
         <Card className="border-border/60 bg-card/60 p-5">
           <div className="mb-3 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
             <h3 className="font-display text-base font-semibold">Insights inteligentes</h3>
           </div>
           <div className="space-y-2.5">
@@ -628,7 +628,7 @@ function Dashboard() {
               Eventos criticos derivados dos dados atuais
             </p>
           </div>
-          <CalendarDays className="h-5 w-5 text-primary" />
+          <CalendarDays className="h-5 w-5 text-muted-foreground" />
         </div>
         <div className="grid gap-3 md:grid-cols-4">
           {[
@@ -688,11 +688,11 @@ function RankingList({
   return (
     <div className="space-y-3">
       {rows.slice(0, 5).map((row, index) => (
-        <div key={row.name} className="flex items-center gap-3">
+        <div key={row.name} className="group flex items-center gap-3">
           {showAvatar ? (
             <CollaboratorAvatar person={row} className="h-8 w-8 text-xs" />
           ) : (
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-muted/55 text-xs font-semibold text-muted-foreground transition group-hover:bg-primary/10 group-hover:text-primary">
               #{index + 1}
             </div>
           )}
