@@ -112,8 +112,8 @@ export function AppSidebar() {
           <div
             className={
               collapsed
-                ? "grid h-10 w-10 place-items-center overflow-hidden rounded-xl border border-sidebar-border bg-black transition hover:border-primary/35 hover:shadow-glow"
-                : "flex h-16 items-center overflow-hidden rounded-2xl border border-sidebar-border bg-black/70 px-3 shadow-[0_18px_38px_-32px_rgba(0,0,0,0.9)] transition hover:border-primary/30 hover:shadow-[0_0_35px_hsl(24_100%_57%/0.14)]"
+                ? "grid h-10 w-10 place-items-center overflow-hidden rounded-xl border border-sidebar-border bg-white shadow-sm transition hover:border-primary/35 hover:shadow-glow dark:bg-black"
+                : "flex h-16 items-center overflow-hidden rounded-2xl border border-sidebar-border bg-white px-3 shadow-sm transition hover:border-primary/30 hover:shadow-[0_0_35px_hsl(24_100%_57%/0.14)] dark:bg-black/70 dark:shadow-[0_18px_38px_-32px_rgba(0,0,0,0.9)]"
             }
           >
             <img
