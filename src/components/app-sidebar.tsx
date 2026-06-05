@@ -112,8 +112,8 @@ export function AppSidebar() {
           <div
             className={
               collapsed
-                ? "grid h-10 w-10 place-items-center overflow-hidden rounded-xl border border-primary/35 bg-black shadow-glow"
-                : "flex h-16 items-center overflow-hidden rounded-2xl border border-primary/25 bg-black/70 px-3 shadow-[0_0_35px_hsl(24_100%_57%/0.16)]"
+                ? "grid h-10 w-10 place-items-center overflow-hidden rounded-xl border border-sidebar-border bg-black transition hover:border-primary/35 hover:shadow-glow"
+                : "flex h-16 items-center overflow-hidden rounded-2xl border border-sidebar-border bg-black/70 px-3 shadow-[0_18px_38px_-32px_rgba(0,0,0,0.9)] transition hover:border-primary/30 hover:shadow-[0_0_35px_hsl(24_100%_57%/0.14)]"
             }
           >
             <img
@@ -128,7 +128,7 @@ export function AppSidebar() {
               <span className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50">
                 Manager
               </span>
-              <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              <span className="rounded-full border border-sidebar-border bg-sidebar-accent/40 px-2 py-0.5 text-[10px] font-medium text-sidebar-foreground/70 transition hover:border-primary/25 hover:bg-primary/10 hover:text-primary">
                 ERP & CRM
               </span>
             </div>
@@ -153,7 +153,7 @@ export function AppSidebar() {
                       <SidebarMenuButton
                         asChild
                         isActive={active}
-                        className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-primary data-[active=true]:font-medium hover:bg-sidebar-accent/60"
+                        className="text-sidebar-foreground/90 hover:bg-sidebar-accent/60 hover:text-sidebar-primary data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-primary"
                       >
                         <Link
                           to={item.url as AppRoutePath}

@@ -186,8 +186,8 @@ export function TopBar() {
             </Badge>
           )}
         </Button>
-        <div className="ml-1 flex min-w-0 items-center gap-2 rounded-full border border-border/60 bg-card/60 py-1 pl-1 pr-1 sm:ml-2 sm:pr-3">
-          <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-full border border-primary/30 bg-black shadow-glow">
+        <div className="group ml-1 flex min-w-0 items-center gap-2 rounded-full border border-border/60 bg-card/60 py-1 pl-1 pr-1 transition hover:border-primary/25 sm:ml-2 sm:pr-3">
+          <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-full border border-border/70 bg-black transition group-hover:border-primary/35 group-hover:shadow-glow">
             <img
               src="/va-consultoria-mark.png"
               alt="VA Consultoria"

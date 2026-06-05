@@ -20,7 +20,7 @@ export function KpiCard({
 }) {
   const up = (delta ?? 0) >= 0;
   const accentBg = {
-    primary: "bg-primary/10 text-primary",
+    primary: "bg-muted/60 text-muted-foreground transition group-hover:bg-primary/10 group-hover:text-primary",
     success: "bg-success/10 text-success",
     warning: "bg-warning/15 text-warning",
     info: "bg-info/10 text-info",
@@ -59,7 +59,7 @@ export function KpiCard({
           {hint && <span className="text-muted-foreground">{hint}</span>}
         </div>
       )}
-      <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/5 blur-2xl transition-opacity group-hover:opacity-100" />
+      <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/5 opacity-0 blur-2xl transition-opacity group-hover:opacity-100" />
     </Card>
   );
 }
