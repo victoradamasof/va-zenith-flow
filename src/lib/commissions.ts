@@ -154,7 +154,7 @@ export function calculateCommissionEntries({
           id: entryId,
           saleId: sale.id,
           saleDate: sale.date,
-          dueDate: firstReceivable?.dueDate ?? sale.date,
+          dueDate: entryReceivable?.dueDate ?? sale.date,
           paidAt: entryStatus.paidAt,
           seller: sale.seller,
           client: sale.client,
