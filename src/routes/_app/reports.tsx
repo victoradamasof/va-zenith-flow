@@ -114,19 +114,21 @@ function Reports() {
   const paidRevenue = calculateReceivedRevenue(sales, receivables);
   const totalRevenue = sales.reduce((sum, sale) => sum + sale.value, 0);
   const paidExpenses = calculatePaidExpenses(expenses, commissionEntries, serviceCostEntries);
+  const payableCommissions = calculatePayableCommissions(commissionEntries);
+  const operationalCosts = paidExpenses + payableCommissions;
   const pendingExpenses =
     expenses
       .filter((expense) => expense.status !== "pago")
       .reduce((sum, expense) => sum + expense.value, 0) +
-    calculatePayableCommissions(commissionEntries) +
+    payableCommissions +
     calculatePendingServiceCosts(serviceCostEntries);
-  const profit = paidRevenue - paidExpenses;
+  const profit = paidRevenue - operationalCosts;
   const delinquentClients = clients.filter((client) => client.status === "inadimplente");
 
   const summary = [
     ["Faturamento total", formatBRL(totalRevenue)],
     ["Receita recebida", formatBRL(paidRevenue)],
-    ["Despesas pagas", formatBRL(paidExpenses)],
+    ["Despesas operacionais", formatBRL(operationalCosts)],
     ["Despesas abertas", formatBRL(pendingExpenses)],
     ["Lucro estimado", formatBRL(profit)],
     ["Vendas registradas", String(sales.length)],

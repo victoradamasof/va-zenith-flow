@@ -194,13 +194,14 @@ function Dashboard() {
     calculatePaidExpenses(expenses, commissionEntries, serviceCostEntries) + bankOutflows;
   const payableCommissions = calculatePayableCommissions(commissionEntries);
   const pendingServiceCosts = calculatePendingServiceCosts(serviceCostEntries);
+  const operationalCosts = paidExpenses + payableCommissions;
   const openExpenses = expenses
     .filter((expense) => expense.status !== "pago")
     .reduce((sum, expense) => sum + expense.value, 0) +
     scheduledBankOutflows +
     payableCommissions +
     pendingServiceCosts;
-  const profit = paidRevenue - paidExpenses;
+  const profit = paidRevenue - operationalCosts;
   const currentCash = calculateCurrentCash(
     cashBase,
     sales,
@@ -326,11 +327,11 @@ function Dashboard() {
         />
         <KpiCard
           label="Despesas operacionais"
-          value={formatBRL(paidExpenses)}
+          value={formatBRL(operationalCosts)}
           delta={6.5}
           icon={TrendingDown}
           accent="warning"
-          hint={`${expenses.length} despesas + ${bankTransactions.length} movimentos C6`}
+          hint={`${expenses.length} despesas + comissões`}
         />
         <KpiCard
           label="Saldo projetado"
@@ -748,7 +749,7 @@ function buildMonthlyData(
     months.set(month, current);
   }
 
-  for (const commission of commissionEntries.filter((entry) => entry.status === "paga")) {
+  for (const commission of commissionEntries.filter((entry) => entry.status !== "prevista")) {
     const month = formatLocalDateBR(commission.paidAt ?? commission.dueDate, { month: "short" });
     const current = months.get(month) ?? { month, receita: 0, despesa: 0, lucro: 0 };
     current.despesa += commission.amount;
@@ -809,7 +810,7 @@ function buildExpenseData(
   }
 
   const paidCommissions = commissionEntries
-    .filter((entry) => entry.status === "paga")
+    .filter((entry) => entry.status !== "prevista")
     .reduce((sum, entry) => sum + entry.amount, 0);
   if (paidCommissions > 0) {
     categories.set("Comissões", {
