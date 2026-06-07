@@ -1,0 +1,50 @@
+{
+  "name": "VA Consultoria Manager",
+  "short_name": "VA Manager",
+  "description": "Sistema financeiro, comercial, CRM, contratos e gestão operacional da VA Consultoria.",
+  "id": "/",
+  "start_url": "/dashboard?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#050505",
+  "theme_color": "#ff7a1a",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/va-consultoria-mark.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/va-consultoria-mark.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard",
+      "icons": [{ "src": "/va-consultoria-mark.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Vendas",
+      "short_name": "Vendas",
+      "url": "/sales",
+      "icons": [{ "src": "/va-consultoria-mark.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Contratos",
+      "short_name": "Contratos",
+      "url": "/contracts",
+      "icons": [{ "src": "/va-consultoria-mark.png", "sizes": "192x192" }]
+    }
+  ]
+}

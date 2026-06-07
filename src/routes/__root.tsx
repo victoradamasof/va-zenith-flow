@@ -11,6 +11,7 @@ import {
 import "../styles.css";
 import appCss from "../styles.css?url";
 import { CloudDataSync } from "@/components/cloud-data-sync";
+import { PwaRegister } from "@/components/pwa-register";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
@@ -76,6 +77,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { name: "google", content: "notranslate" },
+      { name: "application-name", content: "VA Manager" },
+      { name: "theme-color", content: "#050505", media: "(prefers-color-scheme: dark)" },
+      { name: "theme-color", content: "#ffffff", media: "(prefers-color-scheme: light)" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "VA Manager" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "format-detection", content: "telephone=no" },
       { title: "VA Consultoria Manager - ERP financeiro e CRM" },
       {
         name: "description",
@@ -88,6 +97,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/site.webmanifest" },
       { rel: "icon", type: "image/png", href: "/va-consultoria-mark.png" },
       { rel: "shortcut icon", type: "image/png", href: "/va-consultoria-mark.png" },
       { rel: "apple-touch-icon", href: "/va-consultoria-mark.png" },
@@ -124,6 +134,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <PwaRegister />
       <CloudDataSync />
       <Outlet />
       <Toaster richColors closeButton position="top-right" />
