@@ -1,8 +1,12 @@
-const CACHE_NAME = "va-manager-pwa-v1";
+const CACHE_NAME = "va-manager-pwa-v2";
 const APP_SHELL = [
   "/",
   "/dashboard",
   "/site.webmanifest",
+  "/favicon.ico",
+  "/app-icon-192.png",
+  "/app-icon-512.png",
+  "/apple-touch-icon.png",
   "/va-consultoria-mark.png",
   "/va-consultoria-logo-cropped.png"
 ];
@@ -56,6 +60,7 @@ self.addEventListener("fetch", (event) => {
 
   const isStaticAsset =
     url.pathname.startsWith("/assets/") ||
+    url.pathname.endsWith(".ico") ||
     url.pathname.endsWith(".png") ||
     url.pathname.endsWith(".webmanifest");
 
