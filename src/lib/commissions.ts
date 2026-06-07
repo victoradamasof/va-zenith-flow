@@ -79,6 +79,26 @@ function receivedAmount(receivables: Receivable[]) {
     .reduce((sum, receivable) => sum + receivable.amount, 0);
 }
 
+function sortReceivablesByDueDate(receivables: Receivable[]) {
+  return [...receivables].sort((a, b) => {
+    const dateDiff = Date.parse(a.dueDate) - Date.parse(b.dueDate);
+    if (dateDiff !== 0) return dateDiff;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function getLimpaNomeReceivables(receivables: Receivable[]) {
+  const sorted = sortReceivablesByDueDate(receivables);
+  const entryReceivable =
+    sorted.find((receivable) => normalizeText(receivable.label).includes("entrada")) ??
+    sorted[0];
+  const finalReceivable =
+    sorted.find((receivable) => receivable.id !== entryReceivable?.id) ??
+    sorted[sorted.length - 1];
+
+  return { entryReceivable, finalReceivable };
+}
+
 function getEntryStatus({
   entryId,
   earned,
@@ -113,18 +133,16 @@ export function calculateCommissionEntries({
     const hasReceivables = saleReceivables.length > 0;
 
     if (isLimpaNomeService(sale.service)) {
-      const firstReceivable =
-        saleReceivables.find((receivable) => receivable.status === "recebido") ??
-        saleReceivables[0];
-      const finalReceivable = saleReceivables[saleReceivables.length - 1];
-      const entryEarned =
-        sale.status === "pago" ||
-        sale.status === "pago parcialmente" ||
-        saleReceived >= 397 ||
-        (!hasReceivables && sale.status === "pago");
-      const finalEarned =
-        sale.status === "pago" ||
-        (hasReceivables && saleReceivables.every((receivable) => receivable.status === "recebido"));
+      const { entryReceivable, finalReceivable } = getLimpaNomeReceivables(saleReceivables);
+      const entryThreshold = Math.min(397, sale.value);
+      const finalThreshold = Math.max(sale.value, entryThreshold);
+      const entryEarned = hasReceivables
+        ? saleReceived >= entryThreshold || entryReceivable?.status === "recebido"
+        : sale.status === "pago" || sale.status === "pago parcialmente";
+      const finalEarned = hasReceivables
+        ? saleReceived >= finalThreshold ||
+          Boolean(finalReceivable && finalReceivable.id !== entryReceivable?.id && finalReceivable.status === "recebido")
+        : sale.status === "pago";
 
       const entryId = `${sale.id}:limpa-nome-entrada`;
       const finalId = `${sale.id}:limpa-nome-entrega`;
@@ -147,7 +165,7 @@ export function calculateCommissionEntries({
           trigger: "entrada_limpa_nome" as const,
           triggerLabel: "R$ 50 pela entrada paga",
           status: entryStatus.status,
-          sourceReceivableId: firstReceivable?.id,
+          sourceReceivableId: entryReceivable?.id,
         },
         {
           id: finalId,
