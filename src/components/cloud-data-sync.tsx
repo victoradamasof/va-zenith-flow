@@ -51,6 +51,13 @@ function installLocalStorageBridge() {
   });
 }
 
+function applyCloudPayload(payload: CloudPayload) {
+  window.localStorage.setItem(markerKey, payload.updatedAt);
+  replaceAllLocalData(payload.data);
+  window.localStorage.setItem(markerKey, payload.updatedAt);
+  window.dispatchEvent(new CustomEvent("va-manager:cloud-data-applied"));
+}
+
 async function fetchCloudPayload(): Promise<CloudPayload | null> {
   const response = await fetch("/api/cloud-data", {
     headers: { accept: "application/json" },
@@ -80,11 +87,30 @@ export function CloudDataSync() {
   const hydratedRef = useRef(false);
   const importingRef = useRef(false);
   const uploadTimerRef = useRef<number | undefined>(undefined);
+  const pollTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     installLocalStorageBridge();
 
     let cancelled = false;
+
+    const pullRemoteChanges = async () => {
+      if (importingRef.current) return;
+
+      try {
+        const remote = await fetchCloudPayload();
+        if (cancelled || !remote?.data) return;
+
+        const localMarker = window.localStorage.getItem(markerKey);
+        if (remote.updatedAt && remote.updatedAt !== localMarker) {
+          importingRef.current = true;
+          applyCloudPayload(remote);
+          importingRef.current = false;
+        }
+      } catch (error) {
+        console.warn("Cloud polling unavailable", error);
+      }
+    };
 
     const boot = async () => {
       try {
@@ -95,11 +121,8 @@ export function CloudDataSync() {
           const localMarker = window.localStorage.getItem(markerKey);
           if (remote.updatedAt !== localMarker) {
             importingRef.current = true;
-            replaceAllLocalData(remote.data);
-            window.localStorage.setItem(markerKey, remote.updatedAt);
+            applyCloudPayload(remote);
             importingRef.current = false;
-            window.location.reload();
-            return;
           }
         } else {
           await saveCloudPayload(exportAllLocalData());
@@ -108,6 +131,7 @@ export function CloudDataSync() {
         console.warn("Cloud sync unavailable", error);
       } finally {
         hydratedRef.current = true;
+        pollTimerRef.current = window.setInterval(pullRemoteChanges, 15000);
       }
     };
 
@@ -134,6 +158,9 @@ export function CloudDataSync() {
       window.removeEventListener(localWriteEvent, queueUpload);
       if (uploadTimerRef.current) {
         window.clearTimeout(uploadTimerRef.current);
+      }
+      if (pollTimerRef.current) {
+        window.clearInterval(pollTimerRef.current);
       }
     };
   }, []);

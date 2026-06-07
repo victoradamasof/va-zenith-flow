@@ -10,6 +10,7 @@ import {
 
 import "../styles.css";
 import appCss from "../styles.css?url";
+import { AppNotificationListener } from "@/components/app-notification-listener";
 import { CloudDataSync } from "@/components/cloud-data-sync";
 import { PwaRegister } from "@/components/pwa-register";
 import { Toaster } from "@/components/ui/sonner";
@@ -136,6 +137,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <PwaRegister />
       <CloudDataSync />
+      <AppNotificationListener />
       <Outlet />
       <Toaster richColors closeButton position="top-right" />
     </QueryClientProvider>
