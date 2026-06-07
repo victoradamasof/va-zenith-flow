@@ -1,5 +1,12 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
+import {
+  bankConnectionKey,
+  bankMethodLabels,
+  bankTransactionsKey,
+  type BankConnection,
+  type BankTransaction,
+} from "@/lib/bank-data";
 import { formatBRL } from "@/lib/mock-data";
 import {
   getNotificationPermission,
@@ -15,16 +22,26 @@ type StoredSale = {
   value?: number;
 };
 
+type StoredSignatureEvidence = {
+  signedAt?: string;
+  name?: string;
+};
+
 type StoredSignedContract = {
   id?: string;
   clientName?: string;
   service?: string;
   seller?: string;
-  clientEvidence?: { signedAt?: string };
+  clientEvidence?: StoredSignatureEvidence;
+  sellerEvidence?: StoredSignatureEvidence;
 };
 
 const seenSalesKey = "va-local:seen-sale-notifications";
 const seenClientSignaturesKey = "va-local:seen-client-signature-notifications";
+const seenSellerSignaturesKey = "va-local:seen-seller-signature-notifications";
+const seenCompletedContractsKey = "va-local:seen-completed-contract-notifications";
+const seenBankTransactionsKey = "va-local:seen-bank-transaction-notifications";
+const seenBankSyncKey = "va-local:seen-bank-sync-notifications";
 
 function readJsonArray<T>(key: string): T[] {
   try {
@@ -36,8 +53,18 @@ function readJsonArray<T>(key: string): T[] {
   }
 }
 
+function readJsonObject<T>(key: string): T | null {
+  try {
+    const stored = window.localStorage.getItem(key);
+    const parsed = stored ? JSON.parse(stored) : null;
+    return parsed && typeof parsed === "object" ? (parsed as T) : null;
+  } catch {
+    return null;
+  }
+}
+
 function writeStringArray(key: string, values: string[]) {
-  window.localStorage.setItem(key, JSON.stringify(Array.from(new Set(values)).slice(0, 500)));
+  window.localStorage.setItem(key, JSON.stringify(Array.from(new Set(values)).slice(0, 800)));
 }
 
 function readStringSet(key: string) {
@@ -48,6 +75,51 @@ function getRecordId(record: { id?: string }, fallback: string) {
   return String(record.id || fallback).trim();
 }
 
+function getContractLabel(contract: StoredSignedContract) {
+  return `${contract.clientName || "Cliente"} - ${contract.service || "contrato"}`;
+}
+
+function getClientSignatureId(contract: StoredSignedContract) {
+  if (!contract.id || !contract.clientEvidence?.signedAt) return "";
+  return `${contract.id}:client:${contract.clientEvidence.signedAt}`;
+}
+
+function getSellerSignatureId(contract: StoredSignedContract) {
+  if (!contract.id || !contract.sellerEvidence?.signedAt) return "";
+  return `${contract.id}:seller:${contract.sellerEvidence.signedAt}`;
+}
+
+function getCompletedContractId(contract: StoredSignedContract) {
+  if (!contract.id || !contract.clientEvidence?.signedAt || !contract.sellerEvidence?.signedAt) {
+    return "";
+  }
+  return `${contract.id}:completed:${contract.clientEvidence.signedAt}:${contract.sellerEvidence.signedAt}`;
+}
+
+function getBankTransactionNotificationId(transaction: BankTransaction, fallback: string) {
+  return [
+    getRecordId(transaction, fallback),
+    transaction.status,
+    transaction.type,
+    transaction.amount,
+    transaction.date,
+    transaction.externalId || "",
+  ].join(":");
+}
+
+function describeBankTransaction(transaction: BankTransaction) {
+  const direction = transaction.type === "entrada" ? "Entrada" : "Saída";
+  const method = bankMethodLabels[transaction.method] || "Movimentação";
+  const status =
+    transaction.status === "realizado"
+      ? "realizada"
+      : transaction.status === "agendado"
+        ? "agendada"
+        : "cancelada";
+
+  return `${direction} ${status}: ${transaction.description || method} (${formatBRL(transaction.amount)}).`;
+}
+
 export function AppNotificationListener() {
   useEffect(() => {
     if (window.location.pathname === "/login" || window.location.pathname.startsWith("/sign/")) {
@@ -56,13 +128,15 @@ export function AppNotificationListener() {
 
     let booted = false;
     let permissionToastShown = false;
+    let checking = false;
 
     const offerPermission = () => {
       if (permissionToastShown || getNotificationPermission() !== "default") return;
       permissionToastShown = true;
 
       toast.info("Ative notificações da VA Consultoria", {
-        description: "Você será avisado sobre novas vendas e contratos assinados por clientes.",
+        description:
+          "Você será avisado sobre vendas, assinaturas de contrato e movimentações do C6.",
         duration: 12000,
         action: {
           label: "Ativar",
@@ -112,27 +186,41 @@ export function AppNotificationListener() {
       writeStringArray(seenSalesKey, saleIds);
     };
 
-    const checkClientSignatures = async () => {
+    const checkContractSignatures = async () => {
       const contracts = readJsonArray<StoredSignedContract>("va-manager:signed-contracts");
-      const signatureIds = contracts
-        .filter((contract) => contract.id && contract.clientEvidence?.signedAt)
-        .map((contract) => `${contract.id}:${contract.clientEvidence?.signedAt}`);
-      const hasSeenState = window.localStorage.getItem(seenClientSignaturesKey) !== null;
+      const clientSignatureIds = contracts.map(getClientSignatureId).filter(Boolean);
+      const sellerSignatureIds = contracts.map(getSellerSignatureId).filter(Boolean);
+      const completedContractIds = contracts.map(getCompletedContractId).filter(Boolean);
 
-      if (!hasSeenState) {
-        writeStringArray(seenClientSignaturesKey, signatureIds);
-        return;
-      }
+      const hasClientSeenState = window.localStorage.getItem(seenClientSignaturesKey) !== null;
+      const hasSellerSeenState = window.localStorage.getItem(seenSellerSignaturesKey) !== null;
+      const hasCompletedSeenState = window.localStorage.getItem(seenCompletedContractsKey) !== null;
 
-      const seen = readStringSet(seenClientSignaturesKey);
-      const newSignatures = contracts.filter((contract) => {
-        if (!contract.id || !contract.clientEvidence?.signedAt) return false;
-        return !seen.has(`${contract.id}:${contract.clientEvidence.signedAt}`);
+      if (!hasClientSeenState) writeStringArray(seenClientSignaturesKey, clientSignatureIds);
+      if (!hasSellerSeenState) writeStringArray(seenSellerSignaturesKey, sellerSignatureIds);
+      if (!hasCompletedSeenState) writeStringArray(seenCompletedContractsKey, completedContractIds);
+      if (!hasClientSeenState || !hasSellerSeenState || !hasCompletedSeenState) return;
+
+      const seenClients = readStringSet(seenClientSignaturesKey);
+      const seenSellers = readStringSet(seenSellerSignaturesKey);
+      const seenCompleted = readStringSet(seenCompletedContractsKey);
+
+      const newClientSignatures = contracts.filter((contract) => {
+        const id = getClientSignatureId(contract);
+        return id && !seenClients.has(id);
+      });
+      const newSellerSignatures = contracts.filter((contract) => {
+        const id = getSellerSignatureId(contract);
+        return id && !seenSellers.has(id);
+      });
+      const newCompletedContracts = contracts.filter((contract) => {
+        const id = getCompletedContractId(contract);
+        return id && !seenCompleted.has(id);
       });
 
-      for (const contract of newSignatures.slice(0, 4)) {
-        const title = "Contrato assinado pelo cliente";
-        const body = `${contract.clientName || "Cliente"} assinou ${contract.service || "o contrato"}.`;
+      for (const contract of newClientSignatures.slice(0, 4)) {
+        const title = "Contrato assinado pelo contratante";
+        const body = `${getContractLabel(contract)} foi assinado pelo cliente.`;
         toast.success(title, { description: body });
         await showAppNotification({
           title,
@@ -142,29 +230,142 @@ export function AppNotificationListener() {
         });
       }
 
-      if (newSignatures.length > 4) {
-        toast.info(`${newSignatures.length} contratos foram assinados por clientes.`);
+      for (const contract of newSellerSignatures.slice(0, 4)) {
+        const title = "Contrato assinado pelo vendedor";
+        const signer = contract.sellerEvidence?.name || contract.seller || "Vendedor";
+        const body = `${signer} assinou ${getContractLabel(contract)}.`;
+        toast.success(title, { description: body });
+        await showAppNotification({
+          title,
+          body,
+          tag: `contract-seller-${contract.id}`,
+          url: "/contracts",
+        });
       }
 
-      writeStringArray(seenClientSignaturesKey, signatureIds);
+      for (const contract of newCompletedContracts.slice(0, 4)) {
+        const title = "Contrato finalizado";
+        const body = `${getContractLabel(contract)} foi assinado pelas duas partes.`;
+        toast.success(title, { description: body });
+        await showAppNotification({
+          title,
+          body,
+          tag: `contract-completed-${contract.id}`,
+          url: "/contracts",
+        });
+      }
+
+      if (newClientSignatures.length > 4) {
+        toast.info(`${newClientSignatures.length} contratos foram assinados por contratantes.`);
+      }
+      if (newSellerSignatures.length > 4) {
+        toast.info(`${newSellerSignatures.length} contratos foram assinados por vendedores.`);
+      }
+      if (newCompletedContracts.length > 4) {
+        toast.info(`${newCompletedContracts.length} contratos foram finalizados.`);
+      }
+
+      writeStringArray(seenClientSignaturesKey, clientSignatureIds);
+      writeStringArray(seenSellerSignaturesKey, sellerSignatureIds);
+      writeStringArray(seenCompletedContractsKey, completedContractIds);
+    };
+
+    const checkBankTransactions = async () => {
+      const transactions = readJsonArray<BankTransaction>(bankTransactionsKey).filter(
+        (transaction) => transaction.id,
+      );
+      const transactionIds = transactions.map(getBankTransactionNotificationId);
+      const hasSeenState = window.localStorage.getItem(seenBankTransactionsKey) !== null;
+
+      if (!hasSeenState) {
+        writeStringArray(seenBankTransactionsKey, transactionIds);
+        return;
+      }
+
+      const seen = readStringSet(seenBankTransactionsKey);
+      const newOrUpdatedTransactions = transactions.filter((transaction, index) => {
+        const id = getBankTransactionNotificationId(transaction, `bank-${index}`);
+        return !seen.has(id);
+      });
+
+      for (const transaction of newOrUpdatedTransactions.slice(0, 5)) {
+        const title =
+          transaction.source === "api" || transaction.source === "open-finance"
+            ? "Movimentação C6 sincronizada"
+            : "Movimentação C6 atualizada";
+        const body = describeBankTransaction(transaction);
+        toast.info(title, { description: body });
+        await showAppNotification({
+          title,
+          body,
+          tag: `bank-${transaction.id}-${transaction.status}`,
+          url: "/bank",
+        });
+      }
+
+      if (newOrUpdatedTransactions.length > 5) {
+        toast.info(`${newOrUpdatedTransactions.length} movimentações C6 foram sincronizadas.`);
+      }
+
+      writeStringArray(seenBankTransactionsKey, transactionIds);
+    };
+
+    const checkBankSync = async () => {
+      const connection = readJsonObject<BankConnection>(bankConnectionKey);
+      const syncId = connection?.lastSyncAt ? `${connection.status}:${connection.lastSyncAt}` : "";
+      const hasSeenState = window.localStorage.getItem(seenBankSyncKey) !== null;
+
+      if (!hasSeenState) {
+        writeStringArray(seenBankSyncKey, syncId ? [syncId] : []);
+        return;
+      }
+      if (!syncId) return;
+
+      const seen = readStringSet(seenBankSyncKey);
+      if (seen.has(syncId)) return;
+
+      const title = "Banco C6 sincronizado";
+      const body = `${connection?.accountName || "Conta PJ VA Consultoria"} teve os dados atualizados.`;
+      toast.success(title, { description: body });
+      await showAppNotification({
+        title,
+        body,
+        tag: `bank-sync-${connection?.lastSyncAt}`,
+        url: "/bank",
+      });
+
+      writeStringArray(seenBankSyncKey, [syncId]);
     };
 
     const checkAll = () => {
-      void checkSales();
-      void checkClientSignatures();
-      booted = true;
+      if (checking) return;
+      checking = true;
+      Promise.all([
+        checkSales(),
+        checkContractSignatures(),
+        checkBankTransactions(),
+        checkBankSync(),
+      ]).finally(() => {
+        booted = true;
+        checking = false;
+      });
     };
+
+    const watchedKeys = new Set([
+      "va-manager:sales",
+      "va-manager:signed-contracts",
+      bankTransactionsKey,
+      bankConnectionKey,
+    ]);
 
     const handleLocalWrite = (event: Event) => {
       const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-      if (!booted || (key !== "va-manager:sales" && key !== "va-manager:signed-contracts")) return;
+      if (!booted || !key || !watchedKeys.has(key)) return;
       checkAll();
     };
 
     const handleStorage = (event: StorageEvent) => {
-      if (!booted || (event.key !== "va-manager:sales" && event.key !== "va-manager:signed-contracts")) {
-        return;
-      }
+      if (!booted || !event.key || !watchedKeys.has(event.key)) return;
       checkAll();
     };
 
