@@ -22,6 +22,16 @@ type StoredSale = {
   value?: number;
 };
 
+type StoredNotificationEvent = {
+  id?: string;
+  type?: "sale" | "contract" | "bank" | "system";
+  title?: string;
+  body?: string;
+  url?: string;
+  createdAt?: string;
+  expiresAt?: string;
+};
+
 type StoredSignatureEvidence = {
   signedAt?: string;
   name?: string;
@@ -42,6 +52,8 @@ const seenSellerSignaturesKey = "va-local:seen-seller-signature-notifications";
 const seenCompletedContractsKey = "va-local:seen-completed-contract-notifications";
 const seenBankTransactionsKey = "va-local:seen-bank-transaction-notifications";
 const seenBankSyncKey = "va-local:seen-bank-sync-notifications";
+const notificationEventsKey = "va-manager:notification-events";
+const seenNotificationEventsKey = "va-local:seen-notification-events";
 
 function readJsonArray<T>(key: string): T[] {
   try {
@@ -152,6 +164,46 @@ export function AppNotificationListener() {
           },
         },
       });
+    };
+
+    const checkNotificationEvents = async () => {
+      const now = Date.now();
+      const events = readJsonArray<StoredNotificationEvent>(notificationEventsKey).filter(
+        (event) => event.id && (!event.expiresAt || Date.parse(event.expiresAt) > now),
+      );
+      const eventIds = events.map((event, index) => getRecordId(event, `event-${index}`));
+      const seen = readStringSet(seenNotificationEventsKey);
+      const newEvents = events.filter((event, index) => {
+        const eventId = getRecordId(event, `event-${index}`);
+        if (seen.has(eventId)) return false;
+        if (!event.createdAt) return true;
+
+        const createdAt = Date.parse(event.createdAt);
+        return Number.isNaN(createdAt) || now - createdAt < 30 * 60 * 1000;
+      });
+
+      for (const event of newEvents.slice(0, 6)) {
+        const title = event.title || "Notificacao VA Consultoria";
+        const body = event.body || "Novo evento sincronizado no sistema.";
+        const url = event.url || "/dashboard";
+
+        if (event.type === "sale") {
+          toast.success(title, { description: body });
+        } else if (event.type === "bank") {
+          toast.info(title, { description: body });
+        } else {
+          toast.success(title, { description: body });
+        }
+
+        await showAppNotification({
+          title,
+          body,
+          tag: `event-${event.id}`,
+          url,
+        });
+      }
+
+      writeStringArray(seenNotificationEventsKey, eventIds);
     };
 
     const checkSales = async () => {
@@ -341,6 +393,7 @@ export function AppNotificationListener() {
       if (checking) return;
       checking = true;
       Promise.all([
+        checkNotificationEvents(),
         checkSales(),
         checkContractSignatures(),
         checkBankTransactions(),
@@ -354,6 +407,7 @@ export function AppNotificationListener() {
     const watchedKeys = new Set([
       "va-manager:sales",
       "va-manager:signed-contracts",
+      notificationEventsKey,
       bankTransactionsKey,
       bankConnectionKey,
     ]);
