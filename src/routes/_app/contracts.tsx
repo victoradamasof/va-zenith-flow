@@ -248,7 +248,6 @@ function Contracts() {
   );
   const [form, setForm] = useState<ContractForm>({ ...emptyForm });
   const [currentContractId, setCurrentContractId] = useState("");
-  const [clientCepLoading, setClientCepLoading] = useState(false);
   const [companyCepLoading, setCompanyCepLoading] = useState(false);
 
   const activeClients = useMemo(
@@ -370,29 +369,6 @@ function Contracts() {
 
   const updateSettings = (field: keyof ContractSettings, value: string) => {
     setSettings((current) => ({ ...current, [field]: value }));
-  };
-
-  const searchClientCep = async () => {
-    const cep = form.clientZip ?? "";
-    if (formatCep(cep).length < 9) {
-      toast.error("Informe um CEP do cliente com 8 dígitos.");
-      return;
-    }
-
-    try {
-      setClientCepLoading(true);
-      const address = await lookupCepAddress(cep);
-      setForm((current) => ({
-        ...current,
-        clientZip: formatCep(cep),
-        clientAddress: formatAddressFromCep(address),
-      }));
-      toast.success("Endereço do cliente preenchido pelo CEP.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível consultar o CEP.");
-    } finally {
-      setClientCepLoading(false);
-    }
   };
 
   const searchCompanyCep = async () => {
@@ -701,27 +677,6 @@ function Contracts() {
                 onChange={(value) => updateForm("profession", value)}
                 placeholder="Ex: autônoma"
               />
-              <div>
-                  <ContractField
-                    label="CEP do cliente"
-                    value={form.clientZip ?? ""}
-                    onChange={(value) => updateForm("clientZip", formatCep(value))}
-                    onBlur={() => updateForm("clientZip", formatCep(form.clientZip ?? ""))}
-                    placeholder="00000-000"
-                    inputMode="numeric"
-                    maxLength={9}
-                  />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-2 w-full"
-                  onClick={searchClientCep}
-                  disabled={clientCepLoading}
-                >
-                  {clientCepLoading ? "Buscando..." : "Buscar CEP"}
-                </Button>
-              </div>
               <ContractField
                 label="Nacionalidade"
                 value={form.nationality}
