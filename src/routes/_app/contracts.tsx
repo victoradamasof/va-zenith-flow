@@ -84,7 +84,7 @@ export type ContractSellerEvidence = {
 
 type Collaborator = (typeof initialCollaborators)[number] & ContractSellerEvidence;
 
-type ContractTemplate = "limpa_nome" | "rating";
+type ContractTemplate = "limpa_nome" | "rating" | "consultoria_credito";
 
 export type ContractSettings = {
   companyName: string;
@@ -212,6 +212,7 @@ const defaultRatingService = {
 const contractTemplateOptions: Array<{ value: ContractTemplate; label: string }> = [
   { value: "limpa_nome", label: "Limpa Nome" },
   { value: "rating", label: "Rating" },
+  { value: "consultoria_credito", label: "Consultoria de Crédito" },
 ];
 
 const paymentLabels: Record<PaymentMethod, string> = {
@@ -472,9 +473,7 @@ function Contracts() {
   const selectContractTemplate = (template: string) => {
     const contractTemplate = template as ContractTemplate;
     const preferredService = serviceOptions.find((service) =>
-      contractTemplate === "rating"
-        ? isRatingService(service.name)
-        : normalizeText(service.name).includes("limpa nome"),
+      matchesContractTemplate(service.name, contractTemplate),
     );
     setForm((current) => ({
       ...current,
@@ -612,7 +611,7 @@ function Contracts() {
     <div className="space-y-6">
       <PageHeader
         title="Contratos"
-        subtitle="GeraÃ§Ã£o de contratos Limpa Nome e Rating com dados puxados do CRM e da venda"
+        subtitle="Geração de contratos Limpa Nome, Rating e Consultoria de Crédito com dados puxados do CRM e da venda"
         action={
           <>
             <Button variant="outline" onClick={copyContract}>
@@ -1270,6 +1269,9 @@ function ContractPreview({
   if (form.contractTemplate === "rating") {
     return <RatingContractPreview form={form} settings={settings} seller={seller} />;
   }
+  if (form.contractTemplate === "consultoria_credito") {
+    return <ConsultoriaCreditoContractPreview form={form} settings={settings} seller={seller} />;
+  }
 
   return (
     <article className="max-h-[780px] overflow-auto rounded-xl border border-border/60 bg-background p-7 text-sm leading-7 text-foreground shadow-inner">
@@ -1456,6 +1458,87 @@ function RatingContractPreview({
   );
 }
 
+function ConsultoriaCreditoContractPreview({
+  form,
+  settings,
+  seller,
+}: {
+  form: ContractForm;
+  settings: ContractSettings;
+  seller?: Collaborator;
+}) {
+  return (
+    <article className="max-h-[780px] overflow-auto rounded-xl border border-border/60 bg-background p-7 text-sm leading-7 text-foreground shadow-inner">
+      <div className="mb-8 text-center">
+        <h2 className="font-display text-xl font-bold uppercase">
+          Contrato de Prestação de Serviços de Consultoria em Crédito
+        </h2>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Consultoria, intermediação administrativa, rating de crédito e atualização cadastral
+        </p>
+      </div>
+      <p>
+        Pelo presente instrumento particular de contrato, de um lado,{" "}
+        <strong>CONTRATADA:</strong> {settings.companyName}, pessoa jurídica de direito privado,
+        inscrita no CNPJ sob nº {settings.companyDoc || "[CNPJ]"}, com sede em{" "}
+        {settings.companyAddress || "[endereço da empresa]"}, neste ato representada por{" "}
+        {settings.legalRepresentative || "[representante legal]"}.
+      </p>
+      <p className="mt-4">
+        <strong>CONTRATANTE:</strong> {form.clientName || "[Nome do cliente]"}, CPF/CNPJ nº{" "}
+        {form.clientDoc || "[CPF/CNPJ]"}, RG nº {form.clientRg || "[RG]"}, residente e domiciliado(a)
+        em {form.clientAddress || "[endereço]"}.
+      </p>
+      <ContractSection title="Cláusula Primeira - Do Objeto">
+        O presente contrato tem por objeto a prestação de serviços de Consultoria em Crédito,
+        incluindo consultoria e intermediação administrativa relacionada à contestação de apontamentos
+        restritivos em cadastros de crédito, reestruturação de rating, atualização cadastral,
+        atualização de classificação e pontuação de crédito.
+      </ContractSection>
+      <ContractSection title="Cláusula Segunda - Da Natureza do Serviço">
+        O CONTRATANTE declara estar ciente de que o serviço não implica quitação, renegociação ou
+        extinção de dívida originária, não garante aprovação de crédito e será acompanhado por
+        relatórios e informações fornecidas pela CONTRATADA.
+      </ContractSection>
+      <ContractSection title="Cláusula Terceira - Do Prazo">
+        O prazo estimado para conclusão inicial dos procedimentos é de {settings.initialDeadline},
+        prorrogáveis por igual período em caso de necessidade técnica. Após 120 dias úteis, poderá ser
+        solicitado reembolso nos termos do contrato, desde que não haja inadimplência.
+      </ContractSection>
+      <ContractSection title="Cláusula Quarta - Da Garantia">
+        O CONTRATANTE terá cobertura de {settings.warrantyMonths} meses contados a partir da entrega
+        do documento comprobatório de conclusão do serviço, respeitadas as condições do contrato.
+      </ContractSection>
+      <ContractSection title="Cláusula Quinta - Do Valor e Forma de Pagamento">
+        Taxa de Abertura de Processo: {formatBRL(parseCurrencyInput(form.tapValue))}. Honorários de
+        Consultoria em Crédito: {formatBRL(parseCurrencyInput(form.feeValue))}. Total:{" "}
+        {formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}. Forma de
+        pagamento: {paymentLabels[form.paymentMethod]}
+        {form.paymentMethod === "credito" ? ` em ${form.installments}x` : ""}.
+      </ContractSection>
+      <ContractSection title="Cláusulas complementares">
+        O contrato completo contempla obrigações do contratante, responsabilidades da contratada,
+        declarações do contratante, ausência de garantia de aprovação de crédito e foro eleito em{" "}
+        {settings.forum}.
+      </ContractSection>
+      <p className="mt-8">
+        {form.local || settings.defaultLocal}, {formatLongDate(form.contractDate)}.
+      </p>
+      <div className="mt-12 grid gap-8 md:grid-cols-2">
+        <SignatureLine title="CONTRATANTE" name={form.clientName || "Cliente"} />
+        <SignatureLine title="CONTRATADA" name={settings.companyName} />
+        <SignatureLine
+          title="RESPONSÁVEL PELA VENDA"
+          name={form.seller || "Vendedor responsável"}
+          subtitle={seller?.role || form.sellerRole}
+          person={seller}
+        />
+        <SignatureLine title="TESTEMUNHA" name="" />
+      </div>
+    </article>
+  );
+}
+
 function ContractSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-5">
@@ -1530,11 +1613,23 @@ function normalizeText(value = "") {
 }
 
 function inferContractTemplate(serviceName = ""): ContractTemplate {
+  if (isConsultoriaCreditoService(serviceName)) return "consultoria_credito";
   return isRatingService(serviceName) ? "rating" : "limpa_nome";
+}
+
+function matchesContractTemplate(serviceName: string, template: ContractTemplate) {
+  if (template === "rating") return isRatingService(serviceName);
+  if (template === "consultoria_credito") return isConsultoriaCreditoService(serviceName);
+  return normalizeText(serviceName).includes("limpa nome");
 }
 
 function isRatingService(serviceName = "") {
   return normalizeText(serviceName).includes("rating");
+}
+
+function isConsultoriaCreditoService(serviceName = "") {
+  const normalized = normalizeText(serviceName);
+  return normalized.includes("consultoria") && normalized.includes("credito");
 }
 
 function isRatingBancarioService(serviceName = "") {
@@ -1662,6 +1757,9 @@ export function buildFullContractText(form: ContractForm, settings: ContractSett
   if (form.contractTemplate === "rating") {
     return buildRatingContractText(form, settings);
   }
+  if (form.contractTemplate === "consultoria_credito") {
+    return buildConsultoriaCreditoContractText(form, settings);
+  }
 
   const tap = formatBRL(parseCurrencyInput(form.tapValue));
   const fee = formatBRL(parseCurrencyInput(form.feeValue));
@@ -1732,6 +1830,88 @@ export function buildFullContractText(form: ContractForm, settings: ContractSett
     "CONTRATANTE: ________________________________",
     "CONTRATADA: _________________________________",
     `RESPONSÃVEL PELA VENDA: ${form.seller || "________________"}`,
+  ].join("\n");
+}
+
+function buildConsultoriaCreditoContractText(form: ContractForm, settings: ContractSettings) {
+  const tap = formatBRL(parseCurrencyInput(form.tapValue));
+  const fee = formatBRL(parseCurrencyInput(form.feeValue));
+  const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
+  const payment =
+    form.paymentMethod === "credito"
+      ? `Cartão de Crédito em ${form.installments}x`
+      : paymentLabels[form.paymentMethod];
+
+  return [
+    "CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA EM CRÉDITO",
+    "",
+    "Pelo presente instrumento particular de contrato, de um lado:",
+    "",
+    `CONTRATADA: ${settings.companyName}, pessoa jurídica de direito privado, inscrita no CNPJ sob nº ${settings.companyDoc || "[CNPJ]"}, com sede em ${settings.companyAddress || "[endereço da empresa]"}, neste ato representada por seu representante legal ${settings.legalRepresentative || "[representante legal]"}, doravante denominada CONTRATADA.`,
+    "",
+    `CONTRATANTE: ${form.clientName || "[Nome do cliente]"}, CPF/CNPJ nº ${form.clientDoc || "[CPF/CNPJ]"}, RG nº ${form.clientRg || "[RG]"}, residente e domiciliado(a) em ${form.clientAddress || "[endereço]"}, doravante denominado(a) CONTRATANTE.`,
+    "",
+    "CLÁUSULA PRIMEIRA - DO OBJETO",
+    "1.1 O presente contrato tem por objeto a prestação de serviços de Consultoria em Crédito.",
+    "1.2 Os serviços compreendem consultoria e intermediação administrativa relacionada à contestação de apontamentos restritivos em cadastros de crédito (SPC, Serasa, Boa Vista, Cenprot e similares), reestruturação de Rating de Crédito, atualização cadastral, atualização de classificação e pontuação de crédito.",
+    "1.3 A CONTRATADA atua exclusivamente na função de consultoria, gestão administrativa e intermediação, conectando o CONTRATANTE a parceiros habilitados quando necessário.",
+    "1.4 A CONTRATADA não executa serviços jurídicos próprios, não atua como escritório de advocacia e não presta assessoria jurídica direta.",
+    "",
+    "CLÁUSULA SEGUNDA - DA NATUREZA DO SERVIÇO",
+    "2.1 O CONTRATANTE declara estar ciente de que:",
+    "I - O serviço contratado não implica na quitação, renegociação ou extinção da dívida originária;",
+    "II - O objetivo é melhorar o perfil creditício e/ou questionar a legitimidade de apontamentos restritivos quando aplicável;",
+    "III - Não há garantia de aprovação de crédito;",
+    "IV - O acompanhamento será realizado por meio de relatórios e informações fornecidas pela CONTRATADA.",
+    "",
+    "CLÁUSULA TERCEIRA - DO PRAZO",
+    `3.1 O prazo estimado para conclusão inicial dos procedimentos é de ${settings.initialDeadline}, prorrogáveis por igual período em caso de necessidade técnica.`,
+    "3.2 Caso, após o prazo de 120 (cento e vinte) dias úteis, não seja possível apresentar documento que comprove a retirada do apontamento ou conclusão do serviço contratado, poderá ser solicitado pelo CONTRATANTE o reembolso dos valores pagos, desde que não haja inadimplência.",
+    "",
+    "CLÁUSULA QUARTA - DA GARANTIA",
+    `4.1 O CONTRATANTE terá cobertura de ${settings.warrantyMonths} meses contados a partir da entrega do documento comprobatório de conclusão do serviço.`,
+    "4.2 Caso surjam novos apontamentos restritivos dentro deste período, a CONTRATADA providenciará, sem custos adicionais, a intermediação para novo protocolo.",
+    "4.3 Caso as restrições contestadas retornem durante a garantia, o processo será refeito dentro do prazo previsto na Cláusula Terceira.",
+    "4.4 Caso o CONTRATANTE opte por ingressar em novo processo sem aguardar o reprocessamento em curso, deverá pagar novamente a Taxa de Abertura de Processo (TAP) vigente.",
+    "",
+    "CLÁUSULA QUINTA - DO VALOR E FORMA DE PAGAMENTO",
+    "5.1 Pelo presente contrato, o CONTRATANTE pagará à CONTRATADA:",
+    `I - Taxa de Abertura de Processo (TAP): ${tap};`,
+    `II - Honorários de Consultoria em Crédito: ${fee};`,
+    `Valor total contratado: ${total}.`,
+    `Forma de pagamento: ${payment}.`,
+    "5.2 O pagamento deverá ser realizado em até 15 (quinze) dias úteis da assinatura.",
+    "5.3 Em caso de inadimplência, os serviços ficarão suspensos temporariamente até a regularização.",
+    "",
+    "CLÁUSULA SEXTA - DAS OBRIGAÇÕES DO CONTRATANTE",
+    "6.1 Fornecer todas as informações e documentos solicitados.",
+    "6.2 Não realizar múltiplas consultas de CPF durante a execução do serviço.",
+    "6.3 Não atrasar pagamentos de contas de consumo, financiamentos, empréstimos, cartões ou demais obrigações financeiras.",
+    "6.4 Seguir as orientações fornecidas pela consultoria para não prejudicar a recuperação do crédito.",
+    "6.5 Fornecer informações verdadeiras.",
+    "",
+    "CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES DA CONTRATADA",
+    "7.1 A CONTRATADA se compromete a realizar a consultoria e intermediação de forma diligente.",
+    "7.2 A CONTRATADA não se responsabiliza por:",
+    "I - Decisão desfavorável judicial ou administrativa;",
+    "II - Cheques devolvidos (CCF);",
+    "III - Quitação de dívidas;",
+    "IV - Aprovação de crédito por instituições financeiras;",
+    "V - Restrições novas não relacionadas ao objeto inicial.",
+    "",
+    "CLÁUSULA OITAVA - DAS DECLARAÇÕES DO CONTRATANTE",
+    "8.1 O CONTRATANTE declara que está ciente de que a CONTRATADA atua apenas como consultoria e intermediadora, que não há garantia de êxito ou aprovação de crédito e que o serviço não extingue dívidas existentes.",
+    "",
+    "CLÁUSULA NONA - DO FORO",
+    `9.1 Fica eleito o foro da ${settings.forum} para dirimir quaisquer litígios oriundos deste contrato.`,
+    "",
+    `E por estarem justos e contratados, firmam o presente instrumento em 02 (duas) vias de igual teor, juntamente com 02 (duas) testemunhas, para que produza seus jurídicos e legais efeitos. ${form.local || settings.defaultLocal}, ${formatLongDate(form.contractDate)}.`,
+    "",
+    "CONTRATANTE: ________________________________",
+    "CONTRATADA: _________________________________",
+    "TESTEMUNHA 1: _______________________________ CPF: __________________",
+    "TESTEMUNHA 2: _______________________________ CPF: __________________",
+    `RESPONSÁVEL PELA VENDA: ${form.seller || "________________"}`,
   ].join("\n");
 }
 
@@ -1905,6 +2085,124 @@ function buildRatingPrintableHtml(
 </html>`;
 }
 
+function buildConsultoriaCreditoPrintableHtml(
+  form: ContractForm,
+  settings: ContractSettings,
+  evidence?: ContractPrintEvidence,
+) {
+  const tap = formatBRL(parseCurrencyInput(form.tapValue));
+  const fee = formatBRL(parseCurrencyInput(form.feeValue));
+  const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
+  const payment =
+    form.paymentMethod === "credito"
+      ? `Cartão de Crédito em ${form.installments}x`
+      : paymentLabels[form.paymentMethod];
+  const signatureEvidence = buildSignatureEvidenceHtml(evidence);
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Contrato Consultoria de Crédito - ${escapeHtml(form.clientName || "Cliente")}</title>
+<style>
+  @page { size: A4; margin: 18mm 17mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 12px; line-height: 1.52; }
+  main { max-width: 780px; margin: 0 auto; }
+  h1 { margin: 0 0 18px; text-align: center; font-size: 15px; line-height: 1.35; text-transform: uppercase; }
+  h2 { margin: 16px 0 7px; font-size: 12px; text-transform: uppercase; }
+  p { margin: 0 0 8px; text-align: justify; }
+  .party { margin-bottom: 10px; }
+  .highlight { border: 1px solid #d7d7d7; padding: 8px 10px; margin: 10px 0; }
+  .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 34px 44px; margin-top: 42px; page-break-inside: avoid; }
+  .signature { text-align: center; }
+  .line { border-top: 1px solid #111; padding-top: 5px; }
+  .muted { color: #444; font-size: 11px; }
+  .avoid-break { page-break-inside: avoid; }
+  .signature-evidence { margin-top: 24px; padding-top: 14px; border-top: 1px solid #ddd; page-break-inside: avoid; }
+  .signature-evidence h2 { margin-top: 0; }
+  .evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+  .evidence-grid img { width: 100%; max-height: 150px; object-fit: contain; border: 1px solid #ddd; padding: 8px; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Contrato de Prestação de Serviços de Consultoria em Crédito</h1>
+
+  <p class="party">Pelo presente instrumento particular de contrato, de um lado:</p>
+  <p class="party"><strong>CONTRATADA:</strong> ${escapeHtml(settings.companyName)}, pessoa jurídica de direito privado, inscrita no CNPJ sob nº ${escapeHtml(settings.companyDoc || "[CNPJ]")}, com sede em ${escapeHtml(settings.companyAddress || "[endereço da empresa]")}, neste ato representada por seu representante legal ${escapeHtml(settings.legalRepresentative || "[representante legal]")}, doravante denominada CONTRATADA.</p>
+  <p class="party"><strong>CONTRATANTE:</strong> ${escapeHtml(form.clientName || "[Nome do cliente]")}, CPF/CNPJ nº ${escapeHtml(form.clientDoc || "[CPF/CNPJ]")}, RG nº ${escapeHtml(form.clientRg || "[RG]")}, residente e domiciliado(a) em ${escapeHtml(form.clientAddress || "[endereço]")}, doravante denominado(a) CONTRATANTE.</p>
+
+  <div class="highlight avoid-break">
+    <p><strong>Serviço contratado:</strong> ${escapeHtml(form.service || "Consultoria de Crédito")}</p>
+    <p><strong>Taxa de Abertura de Processo (TAP):</strong> ${escapeHtml(tap)}</p>
+    <p><strong>Honorários de Consultoria em Crédito:</strong> ${escapeHtml(fee)}</p>
+    <p><strong>Valor total contratado:</strong> ${escapeHtml(total)}</p>
+    <p><strong>Forma de pagamento:</strong> ${escapeHtml(payment)}</p>
+  </div>
+
+  <h2>Cláusula Primeira - Do Objeto</h2>
+  <p>1.1 O presente contrato tem por objeto a prestação de serviços de Consultoria em Crédito.</p>
+  <p>1.2 Os serviços compreendem consultoria e intermediação administrativa relacionada à contestação de apontamentos restritivos em cadastros de crédito (SPC, Serasa, Boa Vista, Cenprot e similares), reestruturação de Rating de Crédito, atualização cadastral, atualização de classificação e pontuação de crédito.</p>
+  <p>1.3 A CONTRATADA atua exclusivamente na função de consultoria, gestão administrativa e intermediação, conectando o CONTRATANTE a parceiros habilitados quando necessário.</p>
+  <p>1.4 A CONTRATADA não executa serviços jurídicos próprios, não atua como escritório de advocacia e não presta assessoria jurídica direta.</p>
+
+  <h2>Cláusula Segunda - Da Natureza do Serviço</h2>
+  <p>2.1 O CONTRATANTE declara estar ciente de que:</p>
+  <p>I - O serviço contratado não implica na quitação, renegociação ou extinção da dívida originária;</p>
+  <p>II - O objetivo é melhorar o perfil creditício e/ou questionar a legitimidade de apontamentos restritivos quando aplicável;</p>
+  <p>III - Não há garantia de aprovação de crédito;</p>
+  <p>IV - O acompanhamento será realizado por meio de relatórios e informações fornecidas pela CONTRATADA.</p>
+
+  <h2>Cláusula Terceira - Do Prazo</h2>
+  <p>3.1 O prazo estimado para conclusão inicial dos procedimentos é de ${escapeHtml(settings.initialDeadline)}, prorrogáveis por igual período em caso de necessidade técnica.</p>
+  <p>3.2 Caso, após o prazo de 120 (cento e vinte) dias úteis, não seja possível apresentar documento que comprove a retirada do apontamento ou conclusão do serviço contratado, poderá ser solicitado pelo CONTRATANTE o reembolso dos valores pagos, desde que não haja inadimplência.</p>
+
+  <h2>Cláusula Quarta - Da Garantia</h2>
+  <p>4.1 O CONTRATANTE terá cobertura de ${escapeHtml(settings.warrantyMonths)} meses contados a partir da entrega do documento comprobatório de conclusão do serviço.</p>
+  <p>4.2 Caso surjam novos apontamentos restritivos dentro deste período, a CONTRATADA providenciará, sem custos adicionais, a intermediação para novo protocolo.</p>
+  <p>4.3 Caso as restrições contestadas retornem durante a garantia, o processo será refeito dentro do prazo previsto na Cláusula Terceira.</p>
+  <p>4.4 Caso o CONTRATANTE opte por ingressar em novo processo sem aguardar o reprocessamento em curso, deverá pagar novamente a Taxa de Abertura de Processo (TAP) vigente.</p>
+
+  <h2>Cláusula Quinta - Do Valor e Forma de Pagamento</h2>
+  <p>5.1 Pelo presente contrato, o CONTRATANTE pagará à CONTRATADA a Taxa de Abertura de Processo (TAP) no valor de ${escapeHtml(tap)} e Honorários de Consultoria em Crédito no valor de ${escapeHtml(fee)}, totalizando ${escapeHtml(total)}.</p>
+  <p>5.2 O pagamento deverá ser realizado em até 15 (quinze) dias úteis da assinatura.</p>
+  <p>5.3 Em caso de inadimplência, os serviços ficarão suspensos temporariamente até a regularização.</p>
+
+  <h2>Cláusula Sexta - Das Obrigações do Contratante</h2>
+  <p>6.1 Fornecer todas as informações e documentos solicitados.</p>
+  <p>6.2 Não realizar múltiplas consultas de CPF durante a execução do serviço.</p>
+  <p>6.3 Não atrasar pagamentos de contas de consumo, financiamentos, empréstimos, cartões ou demais obrigações financeiras.</p>
+  <p>6.4 Seguir as orientações fornecidas pela consultoria para não prejudicar a recuperação do crédito.</p>
+  <p>6.5 Fornecer informações verdadeiras.</p>
+
+  <h2>Cláusula Sétima - Das Responsabilidades da Contratada</h2>
+  <p>7.1 A CONTRATADA se compromete a realizar a consultoria e intermediação de forma diligente.</p>
+  <p>7.2 A CONTRATADA não se responsabiliza por decisão desfavorável judicial ou administrativa, cheques devolvidos (CCF), quitação de dívidas, aprovação de crédito por instituições financeiras ou restrições novas não relacionadas ao objeto inicial.</p>
+
+  <h2>Cláusula Oitava - Das Declarações do Contratante</h2>
+  <p>8.1 O CONTRATANTE declara que está ciente de que a CONTRATADA atua apenas como consultoria e intermediadora, que não há garantia de êxito ou aprovação de crédito e que o serviço não extingue dívidas existentes.</p>
+
+  <h2>Cláusula Nona - Do Foro</h2>
+  <p>9.1 Fica eleito o foro da ${escapeHtml(settings.forum)} para dirimir quaisquer litígios oriundos deste contrato.</p>
+
+  <p class="avoid-break">E por estarem justos e contratados, firmam o presente instrumento em 02 (duas) vias de igual teor, juntamente com 02 (duas) testemunhas, para que produza seus jurídicos e legais efeitos.</p>
+  <p class="avoid-break">${escapeHtml(form.local || settings.defaultLocal)}, ${escapeHtml(formatLongDate(form.contractDate))}.</p>
+
+  <section class="signatures">
+    <div class="signature"><div class="line">CONTRATANTE</div><div class="muted">${escapeHtml(form.clientName || "Cliente")}</div></div>
+    <div class="signature"><div class="line">CONTRATADA</div><div class="muted">${escapeHtml(settings.companyName)}</div></div>
+    <div class="signature"><div class="line">TESTEMUNHA 1</div><div class="muted">CPF: __________________</div></div>
+    <div class="signature"><div class="line">TESTEMUNHA 2</div><div class="muted">CPF: __________________</div></div>
+    <div class="signature"><div class="line">RESPONSÁVEL PELA VENDA</div><div class="muted">${escapeHtml(form.seller || "Vendedor responsável")}${form.sellerRole ? ` - ${escapeHtml(form.sellerRole)}` : ""}</div></div>
+  </section>
+  ${signatureEvidence}
+</main>
+</body>
+</html>`;
+}
+
 export function buildFullPrintableHtml(
   form: ContractForm,
   settings: ContractSettings,
@@ -1912,6 +2210,9 @@ export function buildFullPrintableHtml(
 ) {
   if (form.contractTemplate === "rating") {
     return buildRatingPrintableHtml(form, settings, evidence);
+  }
+  if (form.contractTemplate === "consultoria_credito") {
+    return buildConsultoriaCreditoPrintableHtml(form, settings, evidence);
   }
 
   const tap = formatBRL(parseCurrencyInput(form.tapValue));
