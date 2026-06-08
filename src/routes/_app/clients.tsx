@@ -68,6 +68,12 @@ import {
   type PaymentMethod,
 } from "@/lib/receivables";
 import { formatLocalDateBR, toLocalISODate } from "@/lib/date-utils";
+import {
+  formatAddressFromCep,
+  formatBrazilianPhone,
+  formatCep,
+  lookupCepAddress,
+} from "@/lib/br-inputs";
 
 export const Route = createFileRoute("/_app/clients")({
   component: Clients,
@@ -79,6 +85,7 @@ const clientStatusOptions = ["ativo", "inadimplente", "inativo"];
 const collaboratorRoleOptions = ["Comercial", "Financeiro", "Operacional", "Administrativo"];
 const installmentOptions = Array.from({ length: 12 }, (_, index) => String(index + 1));
 type Client = (typeof initialClients)[number] & {
+  zip?: string;
   address?: string;
   seller?: string;
   paymentMethod?: PaymentMethod;
@@ -98,6 +105,7 @@ function Clients() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [collaboratorOpen, setCollaboratorOpen] = useState(false);
+  const [cepLoading, setCepLoading] = useState(false);
   const [collaboratorForm, setCollaboratorForm] = useState({
     name: "",
     role: "Comercial",
@@ -108,6 +116,7 @@ function Clients() {
     doc: "",
     phone: "",
     email: "",
+    zip: "",
     address: "",
     service: "",
     origin: "",
@@ -128,6 +137,7 @@ function Clients() {
         client.doc,
         client.phone,
         client.email,
+        "zip" in client ? String(client.zip) : "",
         "address" in client ? String(client.address) : "",
         client.service,
         client.origin,
@@ -161,6 +171,29 @@ function Clients() {
 
   const updateForm = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const searchCep = async () => {
+    const cep = form.zip;
+    if (formatCep(cep).length < 9) {
+      toast.error("Informe um CEP com 8 dígitos.");
+      return;
+    }
+
+    try {
+      setCepLoading(true);
+      const address = await lookupCepAddress(cep);
+      setForm((current) => ({
+        ...current,
+        zip: formatCep(cep),
+        address: formatAddressFromCep(address),
+      }));
+      toast.success("Endereço preenchido pelo CEP.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível consultar o CEP.");
+    } finally {
+      setCepLoading(false);
+    }
   };
 
   const selectService = (serviceName: string) => {
@@ -234,8 +267,9 @@ function Clients() {
         id,
         name,
         doc: form.doc.trim() || "Não informado",
-        phone: form.phone.trim() || "Não informado",
+        phone: formatBrazilianPhone(form.phone).trim() || "Não informado",
         email: form.email.trim() || "sem-email@vaconsultoria.com",
+        zip: formatCep(form.zip),
         address: form.address.trim() || "Não informado",
         service,
         entryDate: toLocalISODate(saleDate),
@@ -254,6 +288,7 @@ function Clients() {
       doc: "",
       phone: "",
       email: "",
+      zip: "",
       address: "",
       service: "",
       origin: "",
@@ -405,7 +440,10 @@ function Clients() {
                     <ClientField
                       label="Telefone"
                       value={form.phone}
-                      onChange={(value) => updateForm("phone", value)}
+                      onChange={(value) => updateForm("phone", formatBrazilianPhone(value))}
+                      placeholder="(61) 99999-9999"
+                      inputMode="numeric"
+                      maxLength={15}
                     />
                     <ClientField
                       label="E-mail"
@@ -413,7 +451,28 @@ function Clients() {
                       onChange={(value) => updateForm("email", value)}
                       type="email"
                     />
-                    <div className="md:col-span-2">
+                    <div className="space-y-2">
+                      <ClientField
+                        label="CEP"
+                        value={form.zip}
+                        onChange={(value) => updateForm("zip", formatCep(value))}
+                        onBlur={() => updateForm("zip", formatCep(form.zip))}
+                        placeholder="00000-000"
+                        inputMode="numeric"
+                        maxLength={9}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={searchCep}
+                        disabled={cepLoading}
+                      >
+                        {cepLoading ? "Buscando..." : "Buscar CEP"}
+                      </Button>
+                    </div>
+                    <div>
                       <ClientField
                         label="Endereço"
                         value={form.address}
@@ -621,6 +680,7 @@ function Clients() {
                       {client.email}
                     </TableCell>
                     <TableCell className="max-w-56 text-xs text-muted-foreground">
+                      {"zip" in client && client.zip ? `${client.zip} · ` : ""}
                       {"address" in client && client.address ? client.address : "Não informado"}
                     </TableCell>
                     <TableCell>{client.service}</TableCell>
@@ -705,6 +765,8 @@ function ClientField({
   type = "text",
   required = false,
   placeholder,
+  inputMode,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -713,6 +775,8 @@ function ClientField({
   type?: string;
   required?: boolean;
   placeholder?: string;
+  inputMode?: "none" | "text" | "tel" | "url" | "email" | "numeric" | "decimal" | "search";
+  maxLength?: number;
 }) {
   return (
     <div className="space-y-2">
@@ -722,6 +786,8 @@ function ClientField({
         value={value}
         required={required}
         placeholder={placeholder}
+        inputMode={inputMode}
+        maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
       />

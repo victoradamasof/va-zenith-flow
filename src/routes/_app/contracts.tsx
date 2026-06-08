@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CollaboratorAvatar } from "@/components/collaborator-avatar";
@@ -55,6 +55,7 @@ import {
   type PaymentMethod,
 } from "@/lib/receivables";
 import { formatLocalDateBR, todayLocalISODate } from "@/lib/date-utils";
+import { formatAddressFromCep, formatCep, lookupCepAddress } from "@/lib/br-inputs";
 
 export const Route = createFileRoute("/_app/contracts")({
   component: Contracts,
@@ -62,6 +63,7 @@ export const Route = createFileRoute("/_app/contracts")({
 });
 
 type Client = (typeof initialClients)[number] & {
+  zip?: string;
   address?: string;
   seller?: string;
   paymentMethod?: PaymentMethod;
@@ -87,6 +89,7 @@ type ContractTemplate = "limpa_nome" | "rating";
 export type ContractSettings = {
   companyName: string;
   companyDoc: string;
+  companyCep?: string;
   companyAddress: string;
   companyCity: string;
   legalRepresentative: string;
@@ -105,6 +108,7 @@ export type ContractForm = {
   nationality: string;
   maritalStatus: string;
   profession: string;
+  clientZip?: string;
   clientAddress: string;
   service: string;
   seller: string;
@@ -160,13 +164,14 @@ export type SignedContractRecord = {
 export const defaultSettings: ContractSettings = {
   companyName: "VA Consultoria",
   companyDoc: "",
+  companyCep: "",
   companyAddress: "Vicente Pires - DF",
   companyCity: "Vicente Pires",
   legalRepresentative: "Emmanuel Victor dos Reis Lopes",
   forum: "Comarca de Samambaia",
   defaultLocal: "Vicente Pires - DF",
   warrantyMonths: "03",
-  initialDeadline: "30 a 45 dias úteis",
+  initialDeadline: "30 a 45 dias Ãºteis",
 };
 
 const emptyForm: ContractForm = {
@@ -178,6 +183,7 @@ const emptyForm: ContractForm = {
   nationality: "",
   maritalStatus: "",
   profession: "",
+  clientZip: "",
   clientAddress: "",
   service: "",
   seller: "",
@@ -194,11 +200,11 @@ const emptyForm: ContractForm = {
 
 const defaultRatingService = {
   id: "s6",
-  name: "Rating Bancário",
+  name: "Rating BancÃ¡rio",
   price: 1200,
   cost: 360,
   commission: 180,
-  category: "Crédito",
+  category: "CrÃ©dito",
   status: "ativo",
   sold: 0,
 };
@@ -209,9 +215,9 @@ const contractTemplateOptions: Array<{ value: ContractTemplate; label: string }>
 ];
 
 const paymentLabels: Record<PaymentMethod, string> = {
-  avista: "À vista/Pix",
+  avista: "Ã€ vista/Pix",
   prazo_pix: "Prazo Pix",
-  credito: "Cartão de crédito",
+  credito: "CartÃ£o de crÃ©dito",
 };
 
 export type ContractSigningPayload = {
@@ -241,6 +247,8 @@ function Contracts() {
   );
   const [form, setForm] = useState<ContractForm>({ ...emptyForm });
   const [currentContractId, setCurrentContractId] = useState("");
+  const [clientCepLoading, setClientCepLoading] = useState(false);
+  const [companyCepLoading, setCompanyCepLoading] = useState(false);
 
   const activeClients = useMemo(
     () =>
@@ -313,7 +321,7 @@ function Contracts() {
 
       if (hasAnyRating) {
         return current.map((service) =>
-          isRatingService(service.name) ? { ...service, name: "Rating Bancário" } : service,
+          isRatingService(service.name) ? { ...service, name: "Rating BancÃ¡rio" } : service,
         );
       }
 
@@ -363,6 +371,53 @@ function Contracts() {
     setSettings((current) => ({ ...current, [field]: value }));
   };
 
+  const searchClientCep = async () => {
+    const cep = form.clientZip ?? "";
+    if (formatCep(cep).length < 9) {
+      toast.error("Informe um CEP do cliente com 8 dÃ­gitos.");
+      return;
+    }
+
+    try {
+      setClientCepLoading(true);
+      const address = await lookupCepAddress(cep);
+      setForm((current) => ({
+        ...current,
+        clientZip: formatCep(cep),
+        clientAddress: formatAddressFromCep(address),
+      }));
+      toast.success("EndereÃ§o do cliente preenchido pelo CEP.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel consultar o CEP.");
+    } finally {
+      setClientCepLoading(false);
+    }
+  };
+
+  const searchCompanyCep = async () => {
+    const cep = settings.companyCep ?? "";
+    if (formatCep(cep).length < 9) {
+      toast.error("Informe um CEP da empresa com 8 dÃ­gitos.");
+      return;
+    }
+
+    try {
+      setCompanyCepLoading(true);
+      const address = await lookupCepAddress(cep);
+      setSettings((current) => ({
+        ...current,
+        companyCep: formatCep(cep),
+        companyAddress: formatAddressFromCep(address),
+        companyCity: address.city || current.companyCity,
+      }));
+      toast.success("EndereÃ§o da empresa preenchido pelo CEP.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel consultar o CEP.");
+    } finally {
+      setCompanyCepLoading(false);
+    }
+  };
+
   const fillFromClient = (clientId: string) => {
     const client = clients.find((item) => item.id === clientId);
     if (!client) return;
@@ -386,6 +441,7 @@ function Contracts() {
       clientId: client.id,
       clientName: client.name,
       clientDoc: client.doc,
+      clientZip: formatCep(client.zip ?? ""),
       clientAddress: client.address || "",
       contractTemplate: inferContractTemplate(serviceName),
       service: serviceName,
@@ -445,7 +501,7 @@ function Contracts() {
     };
     setCurrentContractId(draft.id);
     setDrafts((current) => [draft, ...current].slice(0, 50));
-    toast.success("Contrato salvo no histórico local.");
+    toast.success("Contrato salvo no histÃ³rico local.");
   };
 
   const copyContract = async () => {
@@ -453,7 +509,7 @@ function Contracts() {
       await navigator.clipboard.writeText(buildFullContractText(form, settings));
       toast.success("Contrato copiado.");
     } catch {
-      toast.error("Não foi possível copiar o contrato.");
+      toast.error("NÃ£o foi possÃ­vel copiar o contrato.");
     }
   };
 
@@ -476,17 +532,17 @@ function Contracts() {
 
   const removeDraft = (id: string) => {
     setDrafts((current) => current.filter((draft) => draft.id !== id));
-    toast.success("Contrato excluído.");
+    toast.success("Contrato excluÃ­do.");
   };
 
   const removeSignedContract = (id: string) => {
     setSignedContracts((current) => current.filter((contract) => contract.id !== id));
-    toast.success("Contrato assinado excluído.");
+    toast.success("Contrato assinado excluÃ­do.");
   };
 
   const downloadSignedRecord = (contract: SignedContractRecord) => {
     if (!contract.html) {
-      toast.error("Este contrato ainda não foi assinado pelas duas partes.");
+      toast.error("Este contrato ainda nÃ£o foi assinado pelas duas partes.");
       return;
     }
     downloadHtmlFile(
@@ -504,7 +560,7 @@ function Contracts() {
       return;
     }
     if (signerRole === "seller" && !contract.seller.trim()) {
-      toast.error("Selecione o vendedor responsável antes de gerar o link dele.");
+      toast.error("Selecione o vendedor responsÃ¡vel antes de gerar o link dele.");
       return;
     }
 
@@ -522,7 +578,7 @@ function Contracts() {
     try {
       url = await createShortSigningLink(payload);
     } catch {
-      toast.error("Não foi possível gerar o link curto. Tente novamente.");
+      toast.error("NÃ£o foi possÃ­vel gerar o link curto. Tente novamente.");
       return;
     }
 
@@ -548,7 +604,7 @@ function Contracts() {
           : "Link de assinatura do vendedor copiado.",
       );
     } catch {
-      toast.error("Não foi possível copiar o link.");
+      toast.error("NÃ£o foi possÃ­vel copiar o link.");
     }
   };
 
@@ -556,7 +612,7 @@ function Contracts() {
     <div className="space-y-6">
       <PageHeader
         title="Contratos"
-        subtitle="Geração de contratos Limpa Nome e Rating com dados puxados do CRM e da venda"
+        subtitle="GeraÃ§Ã£o de contratos Limpa Nome e Rating com dados puxados do CRM e da venda"
         action={
           <>
             <Button variant="outline" onClick={copyContract}>
@@ -589,7 +645,7 @@ function Contracts() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Cliente vinculado" value={form.clientName || "Selecione"} icon={FileText} />
         <KpiCard label="Valor do contrato" value={formatBRL(totalContract)} icon={Briefcase} />
-        <KpiCard label="Responsável" value={form.seller || "Equipe VA"} icon={Signature} />
+        <KpiCard label="ResponsÃ¡vel" value={form.seller || "Equipe VA"} icon={Signature} />
         <KpiCard label="Campos prontos" value={`${completion}%`} icon={Settings} accent="success" />
       </div>
 
@@ -599,7 +655,7 @@ function Contracts() {
             <div className="mb-5">
               <h3 className="font-display text-base font-semibold">Dados do contrato</h3>
               <p className="text-xs text-muted-foreground">
-                Selecione um cliente do CRM. Os dados principais são preenchidos automaticamente.
+                Selecione um cliente do CRM. Os dados principais sÃ£o preenchidos automaticamente.
               </p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
@@ -616,7 +672,7 @@ function Contracts() {
                 options={activeClients.map((client) => ({ value: client.id, label: client.name }))}
               />
               <ContractSelect
-                label="Serviço contratado"
+                label="ServiÃ§o contratado"
                 value={form.service}
                 onChange={selectService}
                 options={serviceOptions.map((service) => ({
@@ -641,11 +697,32 @@ function Contracts() {
                 placeholder="Opcional"
               />
               <ContractField
-                label="Profissão"
+                label="ProfissÃ£o"
                 value={form.profession}
                 onChange={(value) => updateForm("profession", value)}
-                placeholder="Ex: autônoma"
+                placeholder="Ex: autÃ´noma"
               />
+              <div>
+                  <ContractField
+                    label="CEP do cliente"
+                    value={form.clientZip ?? ""}
+                    onChange={(value) => updateForm("clientZip", formatCep(value))}
+                    onBlur={() => updateForm("clientZip", formatCep(form.clientZip ?? ""))}
+                    placeholder="00000-000"
+                    inputMode="numeric"
+                    maxLength={9}
+                  />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={searchClientCep}
+                  disabled={clientCepLoading}
+                >
+                  {clientCepLoading ? "Buscando..." : "Buscar CEP"}
+                </Button>
+              </div>
               <ContractField
                 label="Nacionalidade"
                 value={form.nationality}
@@ -659,10 +736,10 @@ function Contracts() {
               />
               <div className="md:col-span-2">
                 <ContractField
-                  label="Endereço do cliente"
+                  label="EndereÃ§o do cliente"
                   value={form.clientAddress}
                   onChange={(value) => updateForm("clientAddress", value)}
-                  placeholder="Rua, número, bairro, cidade/UF"
+                  placeholder="Rua, nÃºmero, bairro, cidade/UF"
                 />
               </div>
             </div>
@@ -670,9 +747,9 @@ function Contracts() {
 
           <Card className="border-border/60 bg-card/60 p-5">
             <div className="mb-5">
-              <h3 className="font-display text-base font-semibold">Pagamento e responsável</h3>
+              <h3 className="font-display text-base font-semibold">Pagamento e responsÃ¡vel</h3>
               <p className="text-xs text-muted-foreground">
-                O vendedor escolhido aparece como responsável pela assinatura interna.
+                O vendedor escolhido aparece como responsÃ¡vel pela assinatura interna.
               </p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
@@ -685,7 +762,7 @@ function Contracts() {
                 }
               />
               <ContractField
-                label="Honorários de consultoria"
+                label="HonorÃ¡rios de consultoria"
                 value={form.feeValue}
                 onChange={(value) => updateForm("feeValue", value)}
                 onBlur={() =>
@@ -714,13 +791,13 @@ function Contracts() {
               ) : (
                 <ContractField
                   label="Parcelamento"
-                  value={form.paymentMethod === "prazo_pix" ? "Entrada + 30 dias" : "À vista"}
+                  value={form.paymentMethod === "prazo_pix" ? "Entrada + 30 dias" : "Ã€ vista"}
                   onChange={() => undefined}
                   readOnly
                 />
               )}
               <ContractSelect
-                label="Vendedor responsável"
+                label="Vendedor responsÃ¡vel"
                 value={form.seller}
                 onChange={(value) => {
                   const sellerProfile = collaboratorsByName.get(normalizeCollaboratorName(value));
@@ -736,7 +813,7 @@ function Contracts() {
                 }))}
               />
               <ContractField
-                label="Cargo/função do vendedor"
+                label="Cargo/funÃ§Ã£o do vendedor"
                 value={form.sellerRole}
                 onChange={(value) => updateForm("sellerRole", value)}
               />
@@ -757,11 +834,11 @@ function Contracts() {
                 onChange={(value) => updateForm("local", value)}
               />
               <div className="md:col-span-2">
-                <Label>Observações internas</Label>
+                <Label>ObservaÃ§Ãµes internas</Label>
                 <Textarea
                   value={form.notes}
                   onChange={(event) => updateForm("notes", event.target.value)}
-                  placeholder="Use para registrar combinados internos. Não aparece no contrato impresso."
+                  placeholder="Use para registrar combinados internos. NÃ£o aparece no contrato impresso."
                 />
               </div>
             </div>
@@ -777,12 +854,12 @@ function Contracts() {
             <div className="mb-5">
               <h3 className="font-display text-base font-semibold">Dados da VA Consultoria</h3>
               <p className="text-xs text-muted-foreground">
-                Essas informações ficam salvas e alimentam todos os contratos.
+                Essas informaÃ§Ãµes ficam salvas e alimentam todos os contratos.
               </p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <ContractField
-                label="Razão/nome da empresa"
+                label="RazÃ£o/nome da empresa"
                 value={settings.companyName}
                 onChange={(value) => updateSettings("companyName", value)}
               />
@@ -792,8 +869,29 @@ function Contracts() {
                 onChange={(value) => updateSettings("companyDoc", value)}
                 placeholder="Informe o CNPJ"
               />
+              <div>
+                  <ContractField
+                    label="CEP da empresa"
+                    value={settings.companyCep ?? ""}
+                    onChange={(value) => updateSettings("companyCep", formatCep(value))}
+                    onBlur={() => updateSettings("companyCep", formatCep(settings.companyCep ?? ""))}
+                    placeholder="00000-000"
+                    inputMode="numeric"
+                    maxLength={9}
+                  />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={searchCompanyCep}
+                  disabled={companyCepLoading}
+                >
+                  {companyCepLoading ? "Buscando..." : "Buscar CEP"}
+                </Button>
+              </div>
               <ContractField
-                label="Sede/endereço"
+                label="Sede/endereÃ§o"
                 value={settings.companyAddress}
                 onChange={(value) => updateSettings("companyAddress", value)}
               />
@@ -813,12 +911,12 @@ function Contracts() {
                 onChange={(value) => updateSettings("forum", value)}
               />
               <ContractField
-                label="Local padrão"
+                label="Local padrÃ£o"
                 value={settings.defaultLocal}
                 onChange={(value) => updateSettings("defaultLocal", value)}
               />
               <ContractField
-                label="Garantia padrão"
+                label="Garantia padrÃ£o"
                 value={settings.warrantyMonths}
                 onChange={(value) => updateSettings("warrantyMonths", value)}
               />
@@ -830,9 +928,9 @@ function Contracts() {
           <Card className="border-border/60 bg-card/60 p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="font-display text-base font-semibold">Prévia do contrato</h3>
+                <h3 className="font-display text-base font-semibold">PrÃ©via do contrato</h3>
                 <p className="text-xs text-muted-foreground">
-                  A prévia abaixo usa o texto-base do contrato enviado.
+                  A prÃ©via abaixo usa o texto-base do contrato enviado.
                 </p>
               </div>
               <Badge variant="outline" className="border-primary/30 text-primary">
@@ -844,7 +942,7 @@ function Contracts() {
 
           <ContractHistoryTable
             title="Pendentes de assinatura"
-            description="Links enviados ao cliente e ainda não finalizados."
+            description="Links enviados ao cliente e ainda nÃ£o finalizados."
             badge={`${pendingDrafts.length} pendentes`}
             emptyText="Nenhum contrato pendente de assinatura."
             rows={pendingDrafts.map((draft) => ({
@@ -940,10 +1038,10 @@ function Contracts() {
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
                     <TableHead>Cliente</TableHead>
-                    <TableHead>Serviço</TableHead>
+                    <TableHead>ServiÃ§o</TableHead>
                     <TableHead>Vendedor</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
+                    <TableHead className="text-right">AÃ§Ãµes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1021,6 +1119,8 @@ function ContractField({
   placeholder,
   onBlur,
   readOnly,
+  inputMode,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -1028,6 +1128,8 @@ function ContractField({
   placeholder?: string;
   onBlur?: () => void;
   readOnly?: boolean;
+  inputMode?: "none" | "text" | "tel" | "url" | "email" | "numeric" | "decimal" | "search";
+  maxLength?: number;
 }) {
   return (
     <div>
@@ -1036,6 +1138,8 @@ function ContractField({
         value={value}
         readOnly={readOnly}
         placeholder={placeholder}
+        inputMode={inputMode}
+        maxLength={maxLength}
         onBlur={onBlur}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -1083,11 +1187,11 @@ function ContractHistoryTable({
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40">
               <TableHead>Cliente</TableHead>
-              <TableHead>Serviço</TableHead>
+              <TableHead>ServiÃ§o</TableHead>
               <TableHead>Vendedor</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Valor</TableHead>
-              <TableHead className="text-right">Ações</TableHead>
+              <TableHead className="text-right">AÃ§Ãµes</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1171,77 +1275,77 @@ function ContractPreview({
     <article className="max-h-[780px] overflow-auto rounded-xl border border-border/60 bg-background p-7 text-sm leading-7 text-foreground shadow-inner">
       <div className="mb-8 text-center">
         <h2 className="font-display text-xl font-bold uppercase">
-          Contrato de Prestação de Serviços de Consultoria e Intermediação
+          Contrato de PrestaÃ§Ã£o de ServiÃ§os de Consultoria e IntermediaÃ§Ã£o
         </h2>
         <p className="mt-2 text-xs text-muted-foreground">
-          Serviços Administrativos e de Contestação de Apontamentos em Cadastro de Crédito - "Limpa
+          ServiÃ§os Administrativos e de ContestaÃ§Ã£o de Apontamentos em Cadastro de CrÃ©dito - "Limpa
           Nome"
         </p>
       </div>
       <p>
         Pelo presente instrumento particular de contrato, de um lado, <strong>CONTRATADA:</strong>{" "}
-        {settings.companyName}, pessoa jurídica de direito privado, inscrita no CNPJ sob nº{" "}
+        {settings.companyName}, pessoa jurÃ­dica de direito privado, inscrita no CNPJ sob nÂº{" "}
         {settings.companyDoc || "[CNPJ da empresa]"}, com sede em {settings.companyAddress}, neste
         ato representada por {settings.legalRepresentative}, doravante denominada CONTRATADA.
       </p>
       <p className="mt-4">
         E, de outro lado, <strong>CONTRATANTE:</strong> {form.clientName || "[Nome do cliente]"},{" "}
         {form.nationality || "[nacionalidade]"}, {form.maritalStatus || "[estado civil]"},{" "}
-        {form.profession || "[profissão]"}, portador(a) do CPF/CNPJ nº{" "}
-        {form.clientDoc || "[CPF/CNPJ]"} e RG nº {form.clientRg || "[RG]"}, residente e
-        domiciliado(a) em {form.clientAddress || "[endereço]"}, doravante denominado CONTRATANTE.
+        {form.profession || "[profissÃ£o]"}, portador(a) do CPF/CNPJ nÂº{" "}
+        {form.clientDoc || "[CPF/CNPJ]"} e RG nÂº {form.clientRg || "[RG]"}, residente e
+        domiciliado(a) em {form.clientAddress || "[endereÃ§o]"}, doravante denominado CONTRATANTE.
       </p>
-      <ContractSection title="Cláusula Primeira - Do Objeto">
-        O presente contrato tem por objeto a prestação de consultoria e intermediação de serviços
-        administrativos relacionados à contestação de apontamentos restritivos em cadastros de
-        crédito (SPC, Serasa, Boa Vista e Cenprot), referente ao serviço {form.service}.
+      <ContractSection title="ClÃ¡usula Primeira - Do Objeto">
+        O presente contrato tem por objeto a prestaÃ§Ã£o de consultoria e intermediaÃ§Ã£o de serviÃ§os
+        administrativos relacionados Ã  contestaÃ§Ã£o de apontamentos restritivos em cadastros de
+        crÃ©dito (SPC, Serasa, Boa Vista e Cenprot), referente ao serviÃ§o {form.service}.
       </ContractSection>
-      <ContractSection title="Cláusula Segunda - Da Natureza do Serviço">
-        O CONTRATANTE declara estar ciente de que o serviço contratado não implica quitação,
-        renegociação ou extinção da dívida originária; a CONTRATADA atua como consultoria, gestão
-        administrativa e intermediação, conectando o CONTRATANTE a parceiros especializados.
+      <ContractSection title="ClÃ¡usula Segunda - Da Natureza do ServiÃ§o">
+        O CONTRATANTE declara estar ciente de que o serviÃ§o contratado nÃ£o implica quitaÃ§Ã£o,
+        renegociaÃ§Ã£o ou extinÃ§Ã£o da dÃ­vida originÃ¡ria; a CONTRATADA atua como consultoria, gestÃ£o
+        administrativa e intermediaÃ§Ã£o, conectando o CONTRATANTE a parceiros especializados.
       </ContractSection>
-      <ContractSection title="Cláusula Terceira - Do Prazo">
-        O prazo estimado para conclusão inicial dos procedimentos é de {settings.initialDeadline},
-        prorrogáveis em caso de necessidade técnica. Após 120 dias úteis sem documento comprobatório
-        de retirada do apontamento, poderá ser solicitado reembolso dos valores pagos, desde que não
-        haja inadimplência.
+      <ContractSection title="ClÃ¡usula Terceira - Do Prazo">
+        O prazo estimado para conclusÃ£o inicial dos procedimentos Ã© de {settings.initialDeadline},
+        prorrogÃ¡veis em caso de necessidade tÃ©cnica. ApÃ³s 120 dias Ãºteis sem documento comprobatÃ³rio
+        de retirada do apontamento, poderÃ¡ ser solicitado reembolso dos valores pagos, desde que nÃ£o
+        haja inadimplÃªncia.
       </ContractSection>
-      <ContractSection title="Cláusula Quarta - Da Garantia">
-        O CONTRATANTE terá cobertura de {settings.warrantyMonths} meses contados a partir da entrega
-        do documento comprobatório de retirada do apontamento, conforme condições previstas no
+      <ContractSection title="ClÃ¡usula Quarta - Da Garantia">
+        O CONTRATANTE terÃ¡ cobertura de {settings.warrantyMonths} meses contados a partir da entrega
+        do documento comprobatÃ³rio de retirada do apontamento, conforme condiÃ§Ãµes previstas no
         contrato-base.
       </ContractSection>
-      <ContractSection title="Cláusula Quinta - Do Valor e Forma de Pagamento">
-        Pelo presente contrato, o CONTRATANTE pagará à CONTRATADA: Taxa de Abertura de Processo
-        (TAP): {formatBRL(parseCurrencyInput(form.tapValue))}; Honorários de Consultoria e
-        Intermediação: {formatBRL(parseCurrencyInput(form.feeValue))}. Valor total:{" "}
+      <ContractSection title="ClÃ¡usula Quinta - Do Valor e Forma de Pagamento">
+        Pelo presente contrato, o CONTRATANTE pagarÃ¡ Ã  CONTRATADA: Taxa de Abertura de Processo
+        (TAP): {formatBRL(parseCurrencyInput(form.tapValue))}; HonorÃ¡rios de Consultoria e
+        IntermediaÃ§Ã£o: {formatBRL(parseCurrencyInput(form.feeValue))}. Valor total:{" "}
         {formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}.
         <div className="mt-3 grid gap-2 rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
-          <PaymentMark active={form.paymentMethod === "avista"} label="À vista/Pix" />
+          <PaymentMark active={form.paymentMethod === "avista"} label="Ã€ vista/Pix" />
           <PaymentMark active={form.paymentMethod === "prazo_pix"} label="Prazo Pix" />
           <PaymentMark
             active={form.paymentMethod === "credito"}
-            label={`Cartão de crédito${form.paymentMethod === "credito" ? ` - ${form.installments}x` : ""}`}
+            label={`CartÃ£o de crÃ©dito${form.paymentMethod === "credito" ? ` - ${form.installments}x` : ""}`}
           />
         </div>
       </ContractSection>
-      <ContractSection title="Cláusula Sexta - Da Multa Contratual">
-        Em caso de descumprimento contratual pelo CONTRATANTE, incluindo fornecimento de informações
-        falsas, inadimplência não regularizada, contratação paralela ou desistência injustificada,
-        será aplicada multa compensatória de até R$ 5.000,00, proporcional ao valor contratado.
+      <ContractSection title="ClÃ¡usula Sexta - Da Multa Contratual">
+        Em caso de descumprimento contratual pelo CONTRATANTE, incluindo fornecimento de informaÃ§Ãµes
+        falsas, inadimplÃªncia nÃ£o regularizada, contrataÃ§Ã£o paralela ou desistÃªncia injustificada,
+        serÃ¡ aplicada multa compensatÃ³ria de atÃ© R$ 5.000,00, proporcional ao valor contratado.
       </ContractSection>
-      <ContractSection title="Cláusula Sétima - Das Responsabilidades da Contratada">
-        A CONTRATADA se compromete a realizar a consultoria e intermediação de forma diligente,
+      <ContractSection title="ClÃ¡usula SÃ©tima - Das Responsabilidades da Contratada">
+        A CONTRATADA se compromete a realizar a consultoria e intermediaÃ§Ã£o de forma diligente,
         manter o CONTRATANTE informado e intermediar contato com parceiros especializados.
       </ContractSection>
-      <ContractSection title="Cláusula Oitava - Das Declarações do Contratante">
-        O CONTRATANTE declara estar ciente de que a CONTRATADA não presta serviços jurídicos
-        diretos, não garante êxito, não extingue a dívida original e pode utilizar ações coletivas
+      <ContractSection title="ClÃ¡usula Oitava - Das DeclaraÃ§Ãµes do Contratante">
+        O CONTRATANTE declara estar ciente de que a CONTRATADA nÃ£o presta serviÃ§os jurÃ­dicos
+        diretos, nÃ£o garante Ãªxito, nÃ£o extingue a dÃ­vida original e pode utilizar aÃ§Ãµes coletivas
         conduzidas por parceiros especializados.
       </ContractSection>
-      <ContractSection title="Cláusula Nona - Do Foro">
-        Fica eleito o foro da {settings.forum} para dirimir quaisquer litígios oriundos deste
+      <ContractSection title="ClÃ¡usula Nona - Do Foro">
+        Fica eleito o foro da {settings.forum} para dirimir quaisquer litÃ­gios oriundos deste
         contrato.
       </ContractSection>
       <p className="mt-8">
@@ -1252,8 +1356,8 @@ function ContractPreview({
         <SignatureLine title="CONTRATANTE" name={form.clientName || "Cliente"} />
         <SignatureLine title="CONTRATADA" name={settings.companyName} />
         <SignatureLine
-          title="RESPONSÁVEL PELA VENDA"
-          name={form.seller || "Vendedor responsável"}
+          title="RESPONSÃVEL PELA VENDA"
+          name={form.seller || "Vendedor responsÃ¡vel"}
           subtitle={seller?.role || form.sellerRole}
           person={seller}
         />
@@ -1274,9 +1378,9 @@ function RatingContractPreview({
   return (
     <article className="max-h-[780px] overflow-auto rounded-xl border border-border/60 bg-background p-7 text-sm leading-7 text-foreground shadow-inner">
       <div className="mb-8 text-center">
-        <h2 className="font-display text-xl font-bold uppercase">Contrato de Prestação de Serviços</h2>
+        <h2 className="font-display text-xl font-bold uppercase">Contrato de PrestaÃ§Ã£o de ServiÃ§os</h2>
         <p className="mt-2 text-xs text-muted-foreground">
-          Programa Rating de Organização e Posicionamento Creditício
+          Programa Rating de OrganizaÃ§Ã£o e Posicionamento CreditÃ­cio
         </p>
       </div>
       <p>
@@ -1287,49 +1391,49 @@ function RatingContractPreview({
       <p className="mt-4">
         <strong>CONTRATANTE:</strong> {form.clientName || "[Nome do cliente]"},{" "}
         CPF/CNPJ {form.clientDoc || "[CPF/CNPJ]"}, RG {form.clientRg || "[RG]"}, residente em{" "}
-        {form.clientAddress || "[endereço]"}, e-mail/contato conforme cadastro no CRM.
+        {form.clientAddress || "[endereÃ§o]"}, e-mail/contato conforme cadastro no CRM.
       </p>
-      <ContractSection title="1. Cláusula geral">
-        Considera-se Rating a metodologia própria adotada pela CONTRATADA, consistente na análise,
-        organização, estruturação e direcionamento estratégico das informações creditícias do
+      <ContractSection title="1. ClÃ¡usula geral">
+        Considera-se Rating a metodologia prÃ³pria adotada pela CONTRATADA, consistente na anÃ¡lise,
+        organizaÃ§Ã£o, estruturaÃ§Ã£o e direcionamento estratÃ©gico das informaÃ§Ãµes creditÃ­cias do
         CONTRATANTE, com objetivo de promover melhor posicionamento perante o mercado, sem se
-        confundir com score, classificação oficial de risco ou índice atribuído por instituições.
+        confundir com score, classificaÃ§Ã£o oficial de risco ou Ã­ndice atribuÃ­do por instituiÃ§Ãµes.
       </ContractSection>
       <ContractSection title="2. Do objeto do contrato">
-        O presente contrato tem por objeto a prestação de serviços especializados de Rating, com
-        análise do perfil, organização cadastral, orientação administrativa e direcionamento
-        estratégico das informações creditícias do CONTRATANTE. A parte administrativa será realizada
-        em até 30 dias úteis, e a atualização completa poderá ocorrer em até 60 dias úteis, conforme
-        fatores sistêmicos de cada instituição.
+        O presente contrato tem por objeto a prestaÃ§Ã£o de serviÃ§os especializados de Rating, com
+        anÃ¡lise do perfil, organizaÃ§Ã£o cadastral, orientaÃ§Ã£o administrativa e direcionamento
+        estratÃ©gico das informaÃ§Ãµes creditÃ­cias do CONTRATANTE. A parte administrativa serÃ¡ realizada
+        em atÃ© 30 dias Ãºteis, e a atualizaÃ§Ã£o completa poderÃ¡ ocorrer em atÃ© 60 dias Ãºteis, conforme
+        fatores sistÃªmicos de cada instituiÃ§Ã£o.
       </ContractSection>
-      <ContractSection title="3. Obrigações do contratante">
-        O CONTRATANTE deverá fornecer informações completas e verdadeiras, seguir as orientações da
-        CONTRATADA, manter comportamento financeiro adequado, evitar solicitações excessivas de
-        crédito, atrasos em contas, consultas excessivas ao CPF/CNPJ e decisões financeiras que
-        prejudiquem o histórico durante a execução do serviço.
+      <ContractSection title="3. ObrigaÃ§Ãµes do contratante">
+        O CONTRATANTE deverÃ¡ fornecer informaÃ§Ãµes completas e verdadeiras, seguir as orientaÃ§Ãµes da
+        CONTRATADA, manter comportamento financeiro adequado, evitar solicitaÃ§Ãµes excessivas de
+        crÃ©dito, atrasos em contas, consultas excessivas ao CPF/CNPJ e decisÃµes financeiras que
+        prejudiquem o histÃ³rico durante a execuÃ§Ã£o do serviÃ§o.
       </ContractSection>
-      <ContractSection title="4. Obrigações da contratada">
-        A CONTRATADA atuará com análise, orientação e estratégia, sem garantia de aprovação de
-        crédito, aumento de score, retirada de registros ou resultado específico. Sua eventual
+      <ContractSection title="4. ObrigaÃ§Ãµes da contratada">
+        A CONTRATADA atuarÃ¡ com anÃ¡lise, orientaÃ§Ã£o e estratÃ©gia, sem garantia de aprovaÃ§Ã£o de
+        crÃ©dito, aumento de score, retirada de registros ou resultado especÃ­fico. Sua eventual
         responsabilidade fica limitada ao valor efetivamente pago pelo CONTRATANTE neste contrato.
       </ContractSection>
       <ContractSection title="5. Inadimplemento, descumprimento e multa">
-        Em caso de inadimplência ou descumprimento, incidirá multa de 10% sobre o valor contratado,
-        além de juros de mora de 1% ao mês e correção monetária quando aplicável. A inadimplência
-        poderá suspender o andamento do serviço até a regularização.
+        Em caso de inadimplÃªncia ou descumprimento, incidirÃ¡ multa de 10% sobre o valor contratado,
+        alÃ©m de juros de mora de 1% ao mÃªs e correÃ§Ã£o monetÃ¡ria quando aplicÃ¡vel. A inadimplÃªncia
+        poderÃ¡ suspender o andamento do serviÃ§o atÃ© a regularizaÃ§Ã£o.
       </ContractSection>
-      <ContractSection title="6. Compromisso com a execução do serviço">
-        A CONTRATADA assume compromisso de realizar o serviço dentro do prazo máximo de 60 dias úteis,
-        contado da assinatura e confirmação de pagamento, podendo haver prorrogação por força maior,
-        recesso, calamidade pública, prorrogação de prazos ou impedimento operacional.
+      <ContractSection title="6. Compromisso com a execuÃ§Ã£o do serviÃ§o">
+        A CONTRATADA assume compromisso de realizar o serviÃ§o dentro do prazo mÃ¡ximo de 60 dias Ãºteis,
+        contado da assinatura e confirmaÃ§Ã£o de pagamento, podendo haver prorrogaÃ§Ã£o por forÃ§a maior,
+        recesso, calamidade pÃºblica, prorrogaÃ§Ã£o de prazos ou impedimento operacional.
       </ContractSection>
-      <ContractSection title="7. Condições gerais e foro">
-        Não há vínculo trabalhista entre as partes. O CONTRATANTE autoriza uso institucional de
-        informações de andamento ou conclusão de forma genérica e sem identificação direta. Fica eleito
-        o foro da {settings.forum} para dirimir controvérsias.
+      <ContractSection title="7. CondiÃ§Ãµes gerais e foro">
+        NÃ£o hÃ¡ vÃ­nculo trabalhista entre as partes. O CONTRATANTE autoriza uso institucional de
+        informaÃ§Ãµes de andamento ou conclusÃ£o de forma genÃ©rica e sem identificaÃ§Ã£o direta. Fica eleito
+        o foro da {settings.forum} para dirimir controvÃ©rsias.
       </ContractSection>
       <ContractSection title="Valor e forma de pagamento">
-        Custo do serviço:{" "}
+        Custo do serviÃ§o:{" "}
         {formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}. Forma de
         pagamento: {paymentLabels[form.paymentMethod]}
         {form.paymentMethod === "credito" ? ` em ${form.installments}x` : ""}.
@@ -1341,8 +1445,8 @@ function RatingContractPreview({
         <SignatureLine title="CONTRATANTE" name={form.clientName || "Cliente"} />
         <SignatureLine title="CONTRATADA" name={settings.companyName} />
         <SignatureLine
-          title="RESPONSÁVEL PELA VENDA"
-          name={form.seller || "Vendedor responsável"}
+          title="RESPONSÃVEL PELA VENDA"
+          name={form.seller || "Vendedor responsÃ¡vel"}
           subtitle={seller?.role || form.sellerRole}
           person={seller}
         />
@@ -1516,20 +1620,20 @@ export function decodeSigningPayload(token: string): ContractSigningPayload | nu
 
 function buildContractText(form: ContractForm, settings: ContractSettings) {
   return [
-    "CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA E INTERMEDIAÇÃO",
+    "CONTRATO DE PRESTAÃ‡ÃƒO DE SERVIÃ‡OS DE CONSULTORIA E INTERMEDIAÃ‡ÃƒO",
     "",
     `CONTRATADA: ${settings.companyName}, CNPJ ${settings.companyDoc || "[CNPJ]"}, com sede em ${settings.companyAddress}, representada por ${settings.legalRepresentative}.`,
     `CONTRATANTE: ${form.clientName}, ${form.nationality}, ${form.maritalStatus}, ${form.profession}, CPF/CNPJ ${form.clientDoc}, RG ${form.clientRg || "[RG]"}, residente em ${form.clientAddress}.`,
     "",
-    `Objeto: consultoria e intermediação de serviços administrativos relacionados à contestação de apontamentos restritivos em cadastros de crédito, serviço ${form.service}.`,
-    `Valor: TAP ${formatBRL(parseCurrencyInput(form.tapValue))}; honorários ${formatBRL(parseCurrencyInput(form.feeValue))}; total ${formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}.`,
+    `Objeto: consultoria e intermediaÃ§Ã£o de serviÃ§os administrativos relacionados Ã  contestaÃ§Ã£o de apontamentos restritivos em cadastros de crÃ©dito, serviÃ§o ${form.service}.`,
+    `Valor: TAP ${formatBRL(parseCurrencyInput(form.tapValue))}; honorÃ¡rios ${formatBRL(parseCurrencyInput(form.feeValue))}; total ${formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}.`,
     `Forma de pagamento: ${paymentLabels[form.paymentMethod]}${form.paymentMethod === "credito" ? ` em ${form.installments}x` : ""}.`,
     `Foro: ${settings.forum}.`,
     `${form.local}, ${formatLongDate(form.contractDate)}.`,
     "",
     "CONTRATANTE: ________________________________",
     "CONTRATADA: _________________________________",
-    `RESPONSÁVEL PELA VENDA: ${form.seller || "________________"}`,
+    `RESPONSÃVEL PELA VENDA: ${form.seller || "________________"}`,
   ].join("\n");
 }
 
@@ -1564,70 +1668,70 @@ export function buildFullContractText(form: ContractForm, settings: ContractSett
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
   const payment =
     form.paymentMethod === "credito"
-      ? `Cartão de Crédito em ${form.installments}x`
+      ? `CartÃ£o de CrÃ©dito em ${form.installments}x`
       : paymentLabels[form.paymentMethod];
 
   return [
-    "CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA E INTERMEDIAÇÃO",
-    '(Serviços Administrativos e de Contestação de Apontamentos em Cadastro de Crédito - "Limpa Nome")',
+    "CONTRATO DE PRESTAÃ‡ÃƒO DE SERVIÃ‡OS DE CONSULTORIA E INTERMEDIAÃ‡ÃƒO",
+    '(ServiÃ§os Administrativos e de ContestaÃ§Ã£o de Apontamentos em Cadastro de CrÃ©dito - "Limpa Nome")',
     "",
     "Pelo presente instrumento particular de contrato, de um lado:",
     "",
-    `CONTRATADA: ${settings.companyName}, pessoa jurídica de direito privado, inscrita no CNPJ sob nº ${settings.companyDoc || "[CNPJ da empresa]"}, com sede em ${settings.companyAddress}, neste ato representada por seu representante legal ${settings.legalRepresentative}, doravante denominada CONTRATADA.`,
+    `CONTRATADA: ${settings.companyName}, pessoa jurÃ­dica de direito privado, inscrita no CNPJ sob nÂº ${settings.companyDoc || "[CNPJ da empresa]"}, com sede em ${settings.companyAddress}, neste ato representada por seu representante legal ${settings.legalRepresentative}, doravante denominada CONTRATADA.`,
     "",
     "E, de outro lado:",
     "",
-    `CONTRATANTE: ${form.clientName || "[Nome do cliente]"}, ${form.nationality || "[nacionalidade]"}, ${form.maritalStatus || "[estado civil]"}, ${form.profession || "[profissão]"}, portador(a) do CPF/CNPJ nº ${form.clientDoc || "[CPF/CNPJ]"} e RG nº ${form.clientRg || "[RG]"}, residente e domiciliado(a) em ${form.clientAddress || "[endereço]"}, doravante denominado CONTRATANTE.`,
+    `CONTRATANTE: ${form.clientName || "[Nome do cliente]"}, ${form.nationality || "[nacionalidade]"}, ${form.maritalStatus || "[estado civil]"}, ${form.profession || "[profissÃ£o]"}, portador(a) do CPF/CNPJ nÂº ${form.clientDoc || "[CPF/CNPJ]"} e RG nÂº ${form.clientRg || "[RG]"}, residente e domiciliado(a) em ${form.clientAddress || "[endereÃ§o]"}, doravante denominado CONTRATANTE.`,
     "",
-    "CLÁUSULA PRIMEIRA - DO OBJETO",
-    "1.1 O presente contrato tem por objeto a prestação de consultoria e intermediação de serviços administrativos relacionados à contestação de apontamentos restritivos em cadastros de crédito (SPC, Serasa, Boa Vista e Cenprot).",
-    "1.2 A CONTRATADA atua exclusivamente na função de consultoria, gestão administrativa e intermediação, conectando o CONTRATANTE a parceiros jurídicos regularmente habilitados, que são os responsáveis técnicos pela condução dos procedimentos administrativos ou judiciais.",
-    "1.3 A CONTRATADA não executa serviços jurídicos próprios, não atua como escritório de advocacia e não presta assessoria jurídica direta.",
+    "CLÃUSULA PRIMEIRA - DO OBJETO",
+    "1.1 O presente contrato tem por objeto a prestaÃ§Ã£o de consultoria e intermediaÃ§Ã£o de serviÃ§os administrativos relacionados Ã  contestaÃ§Ã£o de apontamentos restritivos em cadastros de crÃ©dito (SPC, Serasa, Boa Vista e Cenprot).",
+    "1.2 A CONTRATADA atua exclusivamente na funÃ§Ã£o de consultoria, gestÃ£o administrativa e intermediaÃ§Ã£o, conectando o CONTRATANTE a parceiros jurÃ­dicos regularmente habilitados, que sÃ£o os responsÃ¡veis tÃ©cnicos pela conduÃ§Ã£o dos procedimentos administrativos ou judiciais.",
+    "1.3 A CONTRATADA nÃ£o executa serviÃ§os jurÃ­dicos prÃ³prios, nÃ£o atua como escritÃ³rio de advocacia e nÃ£o presta assessoria jurÃ­dica direta.",
     "",
-    "CLÁUSULA SEGUNDA - DA NATUREZA DO SERVIÇO",
+    "CLÃUSULA SEGUNDA - DA NATUREZA DO SERVIÃ‡O",
     "2.1 O CONTRATANTE declara estar ciente de que:",
-    "- O serviço contratado não implica na quitação, renegociação ou extinção da dívida originária;",
-    "- O objetivo é questionar a legitimidade dos apontamentos restritivos com base no Código de Defesa do Consumidor e normas aplicáveis;",
-    "- Trata-se de medida administrativa ou judicial que pode incluir ações coletivas conduzidas por parceiros especializados;",
-    "- Para resguardar dados sensíveis de todos os envolvidos em ações coletivas, não será fornecido número individual de processo, mas a CONTRATADA garantirá relatórios periódicos sobre o andamento.",
+    "- O serviÃ§o contratado nÃ£o implica na quitaÃ§Ã£o, renegociaÃ§Ã£o ou extinÃ§Ã£o da dÃ­vida originÃ¡ria;",
+    "- O objetivo Ã© questionar a legitimidade dos apontamentos restritivos com base no CÃ³digo de Defesa do Consumidor e normas aplicÃ¡veis;",
+    "- Trata-se de medida administrativa ou judicial que pode incluir aÃ§Ãµes coletivas conduzidas por parceiros especializados;",
+    "- Para resguardar dados sensÃ­veis de todos os envolvidos em aÃ§Ãµes coletivas, nÃ£o serÃ¡ fornecido nÃºmero individual de processo, mas a CONTRATADA garantirÃ¡ relatÃ³rios periÃ³dicos sobre o andamento.",
     "",
-    "CLÁUSULA TERCEIRA - DO PRAZO",
-    `3.1 O prazo estimado para conclusão inicial dos procedimentos é de ${settings.initialDeadline}, prorrogáveis, por igual período, em caso de necessidade técnica.`,
-    "3.2 Caso, após o prazo de 120 (cento e vinte) dias úteis, não seja possível apresentar documento que comprove a retirada do apontamento (ex.: certidão ou consulta atualizada), poderá ser solicitado pelo CONTRATANTE o reembolso dos valores pagos, desde que não haja inadimplência.",
+    "CLÃUSULA TERCEIRA - DO PRAZO",
+    `3.1 O prazo estimado para conclusÃ£o inicial dos procedimentos Ã© de ${settings.initialDeadline}, prorrogÃ¡veis, por igual perÃ­odo, em caso de necessidade tÃ©cnica.`,
+    "3.2 Caso, apÃ³s o prazo de 120 (cento e vinte) dias Ãºteis, nÃ£o seja possÃ­vel apresentar documento que comprove a retirada do apontamento (ex.: certidÃ£o ou consulta atualizada), poderÃ¡ ser solicitado pelo CONTRATANTE o reembolso dos valores pagos, desde que nÃ£o haja inadimplÃªncia.",
     "",
-    "CLÁUSULA QUARTA - DA GARANTIA",
-    `4.1 O CONTRATANTE terá cobertura de ${settings.warrantyMonths} meses contados a partir da entrega do documento comprobatório de retirada do apontamento.`,
-    "4.2 Caso surjam novos apontamentos restritivos no mesmo período, a CONTRATADA providenciará, sem custos adicionais, a intermediação para retirada.",
-    "4.3 Caso as restrições contestadas retornem em razão de eventual queda da liminar, o processo será refeito dentro do mesmo prazo previsto na Cláusula Terceira, estando o CONTRATANTE coberto pela garantia.",
-    "4.4 Caso o CONTRATANTE opte por ingressar em novo processo sem aguardar o reprocessamento em curso, deverá pagar novamente a Taxa de Abertura de Processo (TAP) vigente e terá o seu novo Nada Consta no prazo médio de 15 dias úteis.",
+    "CLÃUSULA QUARTA - DA GARANTIA",
+    `4.1 O CONTRATANTE terÃ¡ cobertura de ${settings.warrantyMonths} meses contados a partir da entrega do documento comprobatÃ³rio de retirada do apontamento.`,
+    "4.2 Caso surjam novos apontamentos restritivos no mesmo perÃ­odo, a CONTRATADA providenciarÃ¡, sem custos adicionais, a intermediaÃ§Ã£o para retirada.",
+    "4.3 Caso as restriÃ§Ãµes contestadas retornem em razÃ£o de eventual queda da liminar, o processo serÃ¡ refeito dentro do mesmo prazo previsto na ClÃ¡usula Terceira, estando o CONTRATANTE coberto pela garantia.",
+    "4.4 Caso o CONTRATANTE opte por ingressar em novo processo sem aguardar o reprocessamento em curso, deverÃ¡ pagar novamente a Taxa de Abertura de Processo (TAP) vigente e terÃ¡ o seu novo Nada Consta no prazo mÃ©dio de 15 dias Ãºteis.",
     "",
-    "CLÁUSULA QUINTA - DO VALOR E FORMA DE PAGAMENTO",
-    "5.1 Pelo presente contrato, o CONTRATANTE pagará à CONTRATADA:",
+    "CLÃUSULA QUINTA - DO VALOR E FORMA DE PAGAMENTO",
+    "5.1 Pelo presente contrato, o CONTRATANTE pagarÃ¡ Ã  CONTRATADA:",
     `I - Taxa de Abertura de Processo (TAP): ${tap};`,
-    `II - Honorários de Consultoria e Intermediação: ${fee};`,
+    `II - HonorÃ¡rios de Consultoria e IntermediaÃ§Ã£o: ${fee};`,
     `Valor total contratado: ${total}.`,
-    `O valor acordado será pago por: ${payment}.`,
-    "5.2 O pagamento deverá ser realizado em até 15 (quinze) dias úteis da assinatura.",
-    "5.3 Em caso de inadimplência, os serviços ficarão suspensos temporariamente até a regularização. Durante esse período, a garantia contratual ficará suspensa, retomando seus efeitos com a quitação.",
+    `O valor acordado serÃ¡ pago por: ${payment}.`,
+    "5.2 O pagamento deverÃ¡ ser realizado em atÃ© 15 (quinze) dias Ãºteis da assinatura.",
+    "5.3 Em caso de inadimplÃªncia, os serviÃ§os ficarÃ£o suspensos temporariamente atÃ© a regularizaÃ§Ã£o. Durante esse perÃ­odo, a garantia contratual ficarÃ¡ suspensa, retomando seus efeitos com a quitaÃ§Ã£o.",
     "",
-    "CLÁUSULA SEXTA - DA MULTA CONTRATUAL",
-    "6.1 Em caso de descumprimento contratual pelo CONTRATANTE, incluindo, mas não se limitando a fornecimento de informações falsas, inadimplência não regularizada, tentativa de contratação paralela de serviços idênticos ou desistência injustificada, será aplicada multa compensatória de até R$ 5.000,00 (cinco mil reais), proporcional ao valor do contrato e limitada ao montante efetivamente contratado.",
+    "CLÃUSULA SEXTA - DA MULTA CONTRATUAL",
+    "6.1 Em caso de descumprimento contratual pelo CONTRATANTE, incluindo, mas nÃ£o se limitando a fornecimento de informaÃ§Ãµes falsas, inadimplÃªncia nÃ£o regularizada, tentativa de contrataÃ§Ã£o paralela de serviÃ§os idÃªnticos ou desistÃªncia injustificada, serÃ¡ aplicada multa compensatÃ³ria de atÃ© R$ 5.000,00 (cinco mil reais), proporcional ao valor do contrato e limitada ao montante efetivamente contratado.",
     "",
-    "CLÁUSULA SÉTIMA - DAS RESPONSABILIDADES DA CONTRATADA",
-    "7.1 A CONTRATADA se compromete a realizar a consultoria e intermediação de forma diligente, manter o CONTRATANTE informado sobre o andamento e intermediar com parceiros especializados devidamente habilitados.",
-    "7.2 A CONTRATADA não se responsabiliza por decisão desfavorável judicial ou administrativa, eventual queda de liminar ou retorno de restrições, restrições novas e não relacionadas ao objeto inicial ou expectativas de concessão de crédito não atendidas.",
+    "CLÃUSULA SÃ‰TIMA - DAS RESPONSABILIDADES DA CONTRATADA",
+    "7.1 A CONTRATADA se compromete a realizar a consultoria e intermediaÃ§Ã£o de forma diligente, manter o CONTRATANTE informado sobre o andamento e intermediar com parceiros especializados devidamente habilitados.",
+    "7.2 A CONTRATADA nÃ£o se responsabiliza por decisÃ£o desfavorÃ¡vel judicial ou administrativa, eventual queda de liminar ou retorno de restriÃ§Ãµes, restriÃ§Ãµes novas e nÃ£o relacionadas ao objeto inicial ou expectativas de concessÃ£o de crÃ©dito nÃ£o atendidas.",
     "",
-    "CLÁUSULA OITAVA - DAS DECLARAÇÕES DO CONTRATANTE",
-    "8.1 O CONTRATANTE declara que está ciente de que a CONTRATADA não presta serviços jurídicos diretos, reconhece que não há garantia de êxito, reconhece que o serviço não extingue ou quita a dívida original e está informado sobre a possibilidade de uso de ações coletivas.",
+    "CLÃUSULA OITAVA - DAS DECLARAÃ‡Ã•ES DO CONTRATANTE",
+    "8.1 O CONTRATANTE declara que estÃ¡ ciente de que a CONTRATADA nÃ£o presta serviÃ§os jurÃ­dicos diretos, reconhece que nÃ£o hÃ¡ garantia de Ãªxito, reconhece que o serviÃ§o nÃ£o extingue ou quita a dÃ­vida original e estÃ¡ informado sobre a possibilidade de uso de aÃ§Ãµes coletivas.",
     "",
-    "CLÁUSULA NONA - DO FORO",
-    `9.1 Fica eleito o foro da ${settings.forum} para dirimir quaisquer litígios oriundos deste contrato.`,
+    "CLÃUSULA NONA - DO FORO",
+    `9.1 Fica eleito o foro da ${settings.forum} para dirimir quaisquer litÃ­gios oriundos deste contrato.`,
     "",
-    `E por estarem justos e contratados, firmam o presente instrumento em 02 (duas) vias de igual teor, juntamente com 02 (duas) testemunhas, para que produza seus jurídicos e legais efeitos. ${form.local || settings.defaultLocal}, ${formatLongDate(form.contractDate)}.`,
+    `E por estarem justos e contratados, firmam o presente instrumento em 02 (duas) vias de igual teor, juntamente com 02 (duas) testemunhas, para que produza seus jurÃ­dicos e legais efeitos. ${form.local || settings.defaultLocal}, ${formatLongDate(form.contractDate)}.`,
     "",
     "CONTRATANTE: ________________________________",
     "CONTRATADA: _________________________________",
-    `RESPONSÁVEL PELA VENDA: ${form.seller || "________________"}`,
+    `RESPONSÃVEL PELA VENDA: ${form.seller || "________________"}`,
   ].join("\n");
 }
 
@@ -1635,65 +1739,65 @@ function buildRatingContractText(form: ContractForm, settings: ContractSettings)
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
   const payment =
     form.paymentMethod === "credito"
-      ? `Cartão de Crédito em ${form.installments}x`
+      ? `CartÃ£o de CrÃ©dito em ${form.installments}x`
       : paymentLabels[form.paymentMethod];
 
   return [
-    "CONTRATO DE PRESTAÇÃO DE SERVIÇOS",
-    "PROGRAMA RATING DE ORGANIZAÇÃO E POSICIONAMENTO CREDITÍCIO",
+    "CONTRATO DE PRESTAÃ‡ÃƒO DE SERVIÃ‡OS",
+    "PROGRAMA RATING DE ORGANIZAÃ‡ÃƒO E POSICIONAMENTO CREDITÃCIO",
     "",
     `${form.local || settings.defaultLocal}, ${formatLongDate(form.contractDate)}.`,
     "",
     `CONTRATADA: ${settings.companyName}, CNPJ ${settings.companyDoc || "[CNPJ]"}, com sede em ${settings.companyAddress}, representada por ${settings.legalRepresentative}.`,
-    `CONTRATANTE: ${form.clientName || "[Nome do cliente]"}, CPF/CNPJ ${form.clientDoc || "[CPF/CNPJ]"}, RG ${form.clientRg || "[RG]"}, residente em ${form.clientAddress || "[endereço]"}, doravante denominado CONTRATANTE.`,
+    `CONTRATANTE: ${form.clientName || "[Nome do cliente]"}, CPF/CNPJ ${form.clientDoc || "[CPF/CNPJ]"}, RG ${form.clientRg || "[RG]"}, residente em ${form.clientAddress || "[endereÃ§o]"}, doravante denominado CONTRATANTE.`,
     "",
-    `Descrição do serviço: ${form.service || "Rating Bancário"}.`,
-    `Custo do serviço: ${total}. Forma de pagamento: ${payment}.`,
+    `DescriÃ§Ã£o do serviÃ§o: ${form.service || "Rating BancÃ¡rio"}.`,
+    `Custo do serviÃ§o: ${total}. Forma de pagamento: ${payment}.`,
     "",
-    "1. CLÁUSULA GERAL",
-    "1.1 Considera-se Rating a metodologia própria adotada pela CONTRATADA, consistente na análise, organização, estruturação e direcionamento estratégico das informações creditícias do CONTRATANTE, com objetivo de promover melhor posicionamento e condução de sua situação perante o mercado, não se confundindo com pontuação de score, classificação oficial de risco ou qualquer índice atribuído por instituições financeiras ou órgãos de proteção ao crédito.",
-    "1.2 Em caso de não cumprimento das obrigações por parte da CONTRATADA dentro do prazo estipulado, poderá o cliente optar pelo cancelamento do serviço somente em caso de atrasos que superem 60 dias úteis a partir da data de depósito, podendo pleitear a devolução do valor pago com multa de até 10% sobre o valor do contrato.",
-    "1.3 Em caso de não cumprimento do contrato por parte do CONTRATANTE e, ainda, em caso de serviço parcelado, será cobrada multa de 10% sobre o valor deste contrato.",
-    "1.4 Esta proposta inclui o serviço de reestruturação do Rating de Crédito, não abrangendo BACEN e CCF, estando o CONTRATANTE ciente desta informação.",
+    "1. CLÃUSULA GERAL",
+    "1.1 Considera-se Rating a metodologia prÃ³pria adotada pela CONTRATADA, consistente na anÃ¡lise, organizaÃ§Ã£o, estruturaÃ§Ã£o e direcionamento estratÃ©gico das informaÃ§Ãµes creditÃ­cias do CONTRATANTE, com objetivo de promover melhor posicionamento e conduÃ§Ã£o de sua situaÃ§Ã£o perante o mercado, nÃ£o se confundindo com pontuaÃ§Ã£o de score, classificaÃ§Ã£o oficial de risco ou qualquer Ã­ndice atribuÃ­do por instituiÃ§Ãµes financeiras ou Ã³rgÃ£os de proteÃ§Ã£o ao crÃ©dito.",
+    "1.2 Em caso de nÃ£o cumprimento das obrigaÃ§Ãµes por parte da CONTRATADA dentro do prazo estipulado, poderÃ¡ o cliente optar pelo cancelamento do serviÃ§o somente em caso de atrasos que superem 60 dias Ãºteis a partir da data de depÃ³sito, podendo pleitear a devoluÃ§Ã£o do valor pago com multa de atÃ© 10% sobre o valor do contrato.",
+    "1.3 Em caso de nÃ£o cumprimento do contrato por parte do CONTRATANTE e, ainda, em caso de serviÃ§o parcelado, serÃ¡ cobrada multa de 10% sobre o valor deste contrato.",
+    "1.4 Esta proposta inclui o serviÃ§o de reestruturaÃ§Ã£o do Rating de CrÃ©dito, nÃ£o abrangendo BACEN e CCF, estando o CONTRATANTE ciente desta informaÃ§Ã£o.",
     "",
     "2. DO OBJETO DO CONTRATO",
-    "2.1 O presente contrato tem por objeto a prestação, pela CONTRATADA, de serviços especializados no âmbito da metodologia denominada Rating, consistente na análise do perfil, organização, estruturação e direcionamento estratégico das informações creditícias do CONTRATANTE.",
-    "2.2 A CONTRATADA utiliza abordagem técnica voltada ao aprimoramento do posicionamento do perfil do CONTRATANTE perante o mercado, incluindo identificação de inconsistências cadastrais, orientação quanto às medidas administrativas cabíveis e, quando necessário, intermediação com parceiros habilitados.",
-    "2.3 A CONTRATADA se compromete ao prazo de entrega de até 30 dias úteis para a parte administrativa e de até 60 dias úteis para a atualização completa do cadastro do CONTRATANTE, observados fatores sistêmicos de cada instituição.",
-    "2.4 As informações passadas antes da assinatura, no momento do checklist, são de total responsabilidade do CONTRATANTE.",
+    "2.1 O presente contrato tem por objeto a prestaÃ§Ã£o, pela CONTRATADA, de serviÃ§os especializados no Ã¢mbito da metodologia denominada Rating, consistente na anÃ¡lise do perfil, organizaÃ§Ã£o, estruturaÃ§Ã£o e direcionamento estratÃ©gico das informaÃ§Ãµes creditÃ­cias do CONTRATANTE.",
+    "2.2 A CONTRATADA utiliza abordagem tÃ©cnica voltada ao aprimoramento do posicionamento do perfil do CONTRATANTE perante o mercado, incluindo identificaÃ§Ã£o de inconsistÃªncias cadastrais, orientaÃ§Ã£o quanto Ã s medidas administrativas cabÃ­veis e, quando necessÃ¡rio, intermediaÃ§Ã£o com parceiros habilitados.",
+    "2.3 A CONTRATADA se compromete ao prazo de entrega de atÃ© 30 dias Ãºteis para a parte administrativa e de atÃ© 60 dias Ãºteis para a atualizaÃ§Ã£o completa do cadastro do CONTRATANTE, observados fatores sistÃªmicos de cada instituiÃ§Ã£o.",
+    "2.4 As informaÃ§Ãµes passadas antes da assinatura, no momento do checklist, sÃ£o de total responsabilidade do CONTRATANTE.",
     "",
-    "3. DAS OBRIGAÇÕES DO CONTRATANTE",
-    "3.1 Fornecer informações completas, verídicas e atualizadas, bem como documentos necessários à análise de sua situação creditícia.",
-    "3.2 Seguir as orientações da CONTRATADA, entendendo que o serviço funciona melhor quando há cooperação entre as partes.",
-    "3.3 Manter comportamento financeiro ilibado e evitar solicitações excessivas de crédito, consultas excessivas ao CPF/CNPJ, atrasos de contas, decisões financeiras prejudiciais e demais atos que possam comprometer o processo de Rating.",
-    "3.4 O CONTRATANTE declara ciência de que o CONTRATADO não se responsabiliza por cheques devolvidos, quitação de dívidas, processos ou débitos existentes em seu nome.",
+    "3. DAS OBRIGAÃ‡Ã•ES DO CONTRATANTE",
+    "3.1 Fornecer informaÃ§Ãµes completas, verÃ­dicas e atualizadas, bem como documentos necessÃ¡rios Ã  anÃ¡lise de sua situaÃ§Ã£o creditÃ­cia.",
+    "3.2 Seguir as orientaÃ§Ãµes da CONTRATADA, entendendo que o serviÃ§o funciona melhor quando hÃ¡ cooperaÃ§Ã£o entre as partes.",
+    "3.3 Manter comportamento financeiro ilibado e evitar solicitaÃ§Ãµes excessivas de crÃ©dito, consultas excessivas ao CPF/CNPJ, atrasos de contas, decisÃµes financeiras prejudiciais e demais atos que possam comprometer o processo de Rating.",
+    "3.4 O CONTRATANTE declara ciÃªncia de que o CONTRATADO nÃ£o se responsabiliza por cheques devolvidos, quitaÃ§Ã£o de dÃ­vidas, processos ou dÃ©bitos existentes em seu nome.",
     "",
-    "4. DAS OBRIGAÇÕES DA CONTRATADA",
-    "4.1 O CONTRATANTE está ciente de que o serviço Rating é baseado em análise, orientação e estratégia, não havendo garantia de resultado específico, como aprovação de crédito, aumento de score ou retirada de registros.",
-    "4.2 A CONTRATADA não se responsabiliza por negativa de crédito por instituições financeiras, manutenção ou inclusão de registros por terceiros, alterações nas regras de análise de crédito ou existência de dívidas legítimas.",
-    "4.3 Eventual responsabilidade da CONTRATADA ficará limitada ao valor efetivamente pago pelo CONTRATANTE neste contrato.",
+    "4. DAS OBRIGAÃ‡Ã•ES DA CONTRATADA",
+    "4.1 O CONTRATANTE estÃ¡ ciente de que o serviÃ§o Rating Ã© baseado em anÃ¡lise, orientaÃ§Ã£o e estratÃ©gia, nÃ£o havendo garantia de resultado especÃ­fico, como aprovaÃ§Ã£o de crÃ©dito, aumento de score ou retirada de registros.",
+    "4.2 A CONTRATADA nÃ£o se responsabiliza por negativa de crÃ©dito por instituiÃ§Ãµes financeiras, manutenÃ§Ã£o ou inclusÃ£o de registros por terceiros, alteraÃ§Ãµes nas regras de anÃ¡lise de crÃ©dito ou existÃªncia de dÃ­vidas legÃ­timas.",
+    "4.3 Eventual responsabilidade da CONTRATADA ficarÃ¡ limitada ao valor efetivamente pago pelo CONTRATANTE neste contrato.",
     "",
     "5. DO INADIMPLEMENTO, DESCUMPRIMENTO E MULTA",
-    "5.1 Em caso de inadimplência do CONTRATANTE quanto ao pagamento do serviço, incidirá multa de 10% sobre o valor total, juros de mora de 1% ao mês e correção monetária.",
-    "5.2 A inadimplência poderá suspender temporariamente a execução do serviço até a regularização e poderá levar o débito à cobrança administrativa, protesto ou via judicial, conforme legislação aplicável.",
-    "5.3 Não poderá o presente instrumento ser rescindido unilateralmente e sem motivo por nenhuma das partes, sob pena de responsabilização por danos materiais, lucros cessantes e multa.",
+    "5.1 Em caso de inadimplÃªncia do CONTRATANTE quanto ao pagamento do serviÃ§o, incidirÃ¡ multa de 10% sobre o valor total, juros de mora de 1% ao mÃªs e correÃ§Ã£o monetÃ¡ria.",
+    "5.2 A inadimplÃªncia poderÃ¡ suspender temporariamente a execuÃ§Ã£o do serviÃ§o atÃ© a regularizaÃ§Ã£o e poderÃ¡ levar o dÃ©bito Ã  cobranÃ§a administrativa, protesto ou via judicial, conforme legislaÃ§Ã£o aplicÃ¡vel.",
+    "5.3 NÃ£o poderÃ¡ o presente instrumento ser rescindido unilateralmente e sem motivo por nenhuma das partes, sob pena de responsabilizaÃ§Ã£o por danos materiais, lucros cessantes e multa.",
     "",
-    "6. DO COMPROMISSO COM A EXECUÇÃO DO SERVIÇO",
-    "6.1 A CONTRATADA assume o compromisso de realizar o serviço em até 60 dias úteis, tendo como marco inicial a assinatura e confirmação do pagamento.",
-    "6.2 O prazo poderá ser prorrogado por motivo de força maior, recesso, calamidade pública, prorrogação de prazos ou qualquer outro motivo que impeça a atuação da empresa.",
+    "6. DO COMPROMISSO COM A EXECUÃ‡ÃƒO DO SERVIÃ‡O",
+    "6.1 A CONTRATADA assume o compromisso de realizar o serviÃ§o em atÃ© 60 dias Ãºteis, tendo como marco inicial a assinatura e confirmaÃ§Ã£o do pagamento.",
+    "6.2 O prazo poderÃ¡ ser prorrogado por motivo de forÃ§a maior, recesso, calamidade pÃºblica, prorrogaÃ§Ã£o de prazos ou qualquer outro motivo que impeÃ§a a atuaÃ§Ã£o da empresa.",
     "",
-    "7. DAS CONDIÇÕES GERAIS",
-    "7.1 Fica de comum acordo a inexistência de vínculo trabalhista entre as partes.",
-    "7.2 O CONTRATANTE autoriza a CONTRATADA a utilizar, para fins institucionais e de divulgação de resultados, informações relacionadas ao andamento ou conclusão do serviço, desde que de forma genérica e sem identificação direta.",
+    "7. DAS CONDIÃ‡Ã•ES GERAIS",
+    "7.1 Fica de comum acordo a inexistÃªncia de vÃ­nculo trabalhista entre as partes.",
+    "7.2 O CONTRATANTE autoriza a CONTRATADA a utilizar, para fins institucionais e de divulgaÃ§Ã£o de resultados, informaÃ§Ãµes relacionadas ao andamento ou conclusÃ£o do serviÃ§o, desde que de forma genÃ©rica e sem identificaÃ§Ã£o direta.",
     "",
     "8. DO FORO",
-    `8.1 As partes elegem o foro da ${settings.forum} para dirimir controvérsias inerentes ao presente contrato.`,
+    `8.1 As partes elegem o foro da ${settings.forum} para dirimir controvÃ©rsias inerentes ao presente contrato.`,
     "",
     "CONTRATADA: _________________________________",
     "CONTRATANTE: ________________________________",
     "TESTEMUNHA 1: _______________________________",
     "TESTEMUNHA 2: _______________________________",
-    `RESPONSÁVEL PELA VENDA: ${form.seller || "________________"}`,
+    `RESPONSÃVEL PELA VENDA: ${form.seller || "________________"}`,
   ].join("\n");
 }
 
@@ -1705,7 +1809,7 @@ function buildRatingPrintableHtml(
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
   const payment =
     form.paymentMethod === "credito"
-      ? `Cartão de Crédito em ${form.installments}x`
+      ? `CartÃ£o de CrÃ©dito em ${form.installments}x`
       : paymentLabels[form.paymentMethod];
   const signatureEvidence = buildSignatureEvidenceHtml(evidence);
 
@@ -1739,53 +1843,53 @@ function buildRatingPrintableHtml(
 </head>
 <body>
 <main>
-  <h1>Contrato de Prestação de Serviços</h1>
-  <p class="subtitle">Programa Rating de Organização e Posicionamento Creditício</p>
+  <h1>Contrato de PrestaÃ§Ã£o de ServiÃ§os</h1>
+  <p class="subtitle">Programa Rating de OrganizaÃ§Ã£o e Posicionamento CreditÃ­cio</p>
   <p class="party"><strong>CONTRATADA:</strong> ${escapeHtml(settings.companyName)}, CNPJ ${escapeHtml(settings.companyDoc || "[CNPJ]")}, com sede em ${escapeHtml(settings.companyAddress)}, representada por ${escapeHtml(settings.legalRepresentative)}.</p>
-  <p class="party"><strong>CONTRATANTE:</strong> ${escapeHtml(form.clientName || "[Nome do cliente]")}, CPF/CNPJ ${escapeHtml(form.clientDoc || "[CPF/CNPJ]")}, RG ${escapeHtml(form.clientRg || "[RG]")}, residente em ${escapeHtml(form.clientAddress || "[endereço]")}.</p>
+  <p class="party"><strong>CONTRATANTE:</strong> ${escapeHtml(form.clientName || "[Nome do cliente]")}, CPF/CNPJ ${escapeHtml(form.clientDoc || "[CPF/CNPJ]")}, RG ${escapeHtml(form.clientRg || "[RG]")}, residente em ${escapeHtml(form.clientAddress || "[endereÃ§o]")}.</p>
   <div class="highlight avoid-break">
-    <p><strong>Descrição do serviço:</strong> ${escapeHtml(form.service || "Rating Bancário")}</p>
-    <p><strong>Custo do serviço:</strong> ${escapeHtml(total)}</p>
+    <p><strong>DescriÃ§Ã£o do serviÃ§o:</strong> ${escapeHtml(form.service || "Rating BancÃ¡rio")}</p>
+    <p><strong>Custo do serviÃ§o:</strong> ${escapeHtml(total)}</p>
     <p><strong>Forma de pagamento:</strong> ${escapeHtml(payment)}</p>
   </div>
 
-  <h2>1. Cláusula geral</h2>
-  <p>1.1 Considera-se Rating a metodologia própria adotada pela CONTRATADA, consistente na análise, organização, estruturação e direcionamento estratégico das informações creditícias do CONTRATANTE, com objetivo de promover melhor posicionamento e condução de sua situação perante o mercado, não se confundindo com pontuação de score, classificação oficial de risco ou qualquer índice atribuído por instituições financeiras ou órgãos de proteção ao crédito.</p>
-  <p>1.2 Em caso de não cumprimento das obrigações por parte da CONTRATADA dentro do prazo estipulado, poderá o cliente optar pelo cancelamento do serviço somente em caso de atrasos que superem 60 dias úteis a partir da data de depósito, podendo pleitear a devolução do valor pago com multa de até 10% sobre o valor do contrato.</p>
-  <p>1.3 Em caso de não cumprimento do contrato por parte do CONTRATANTE e, ainda, em caso de serviço parcelado, será cobrada multa de 10% sobre o valor deste contrato.</p>
-  <p>1.4 Esta proposta inclui o serviço de reestruturação do Rating de Crédito, não abrangendo BACEN e CCF, estando o CONTRATANTE ciente desta informação.</p>
+  <h2>1. ClÃ¡usula geral</h2>
+  <p>1.1 Considera-se Rating a metodologia prÃ³pria adotada pela CONTRATADA, consistente na anÃ¡lise, organizaÃ§Ã£o, estruturaÃ§Ã£o e direcionamento estratÃ©gico das informaÃ§Ãµes creditÃ­cias do CONTRATANTE, com objetivo de promover melhor posicionamento e conduÃ§Ã£o de sua situaÃ§Ã£o perante o mercado, nÃ£o se confundindo com pontuaÃ§Ã£o de score, classificaÃ§Ã£o oficial de risco ou qualquer Ã­ndice atribuÃ­do por instituiÃ§Ãµes financeiras ou Ã³rgÃ£os de proteÃ§Ã£o ao crÃ©dito.</p>
+  <p>1.2 Em caso de nÃ£o cumprimento das obrigaÃ§Ãµes por parte da CONTRATADA dentro do prazo estipulado, poderÃ¡ o cliente optar pelo cancelamento do serviÃ§o somente em caso de atrasos que superem 60 dias Ãºteis a partir da data de depÃ³sito, podendo pleitear a devoluÃ§Ã£o do valor pago com multa de atÃ© 10% sobre o valor do contrato.</p>
+  <p>1.3 Em caso de nÃ£o cumprimento do contrato por parte do CONTRATANTE e, ainda, em caso de serviÃ§o parcelado, serÃ¡ cobrada multa de 10% sobre o valor deste contrato.</p>
+  <p>1.4 Esta proposta inclui o serviÃ§o de reestruturaÃ§Ã£o do Rating de CrÃ©dito, nÃ£o abrangendo BACEN e CCF, estando o CONTRATANTE ciente desta informaÃ§Ã£o.</p>
 
   <h2>2. Do objeto do contrato</h2>
-  <p>2.1 O presente contrato tem por objeto a prestação, pela CONTRATADA, de serviços especializados no âmbito da metodologia denominada Rating, consistente na análise do perfil, organização, estruturação e direcionamento estratégico das informações creditícias do CONTRATANTE.</p>
-  <p>2.2 A CONTRATADA utiliza abordagem técnica voltada ao aprimoramento do posicionamento do perfil do CONTRATANTE perante o mercado, incluindo identificação de inconsistências cadastrais, orientação quanto às medidas administrativas cabíveis e, quando necessário, intermediação com parceiros habilitados.</p>
-  <p>2.3 A CONTRATADA se compromete ao prazo de entrega de até 30 dias úteis para a parte administrativa e de até 60 dias úteis para a atualização completa do cadastro do CONTRATANTE, observados fatores sistêmicos de cada instituição.</p>
-  <p>2.4 As informações passadas antes da assinatura, no momento do checklist, são de total responsabilidade do CONTRATANTE.</p>
+  <p>2.1 O presente contrato tem por objeto a prestaÃ§Ã£o, pela CONTRATADA, de serviÃ§os especializados no Ã¢mbito da metodologia denominada Rating, consistente na anÃ¡lise do perfil, organizaÃ§Ã£o, estruturaÃ§Ã£o e direcionamento estratÃ©gico das informaÃ§Ãµes creditÃ­cias do CONTRATANTE.</p>
+  <p>2.2 A CONTRATADA utiliza abordagem tÃ©cnica voltada ao aprimoramento do posicionamento do perfil do CONTRATANTE perante o mercado, incluindo identificaÃ§Ã£o de inconsistÃªncias cadastrais, orientaÃ§Ã£o quanto Ã s medidas administrativas cabÃ­veis e, quando necessÃ¡rio, intermediaÃ§Ã£o com parceiros habilitados.</p>
+  <p>2.3 A CONTRATADA se compromete ao prazo de entrega de atÃ© 30 dias Ãºteis para a parte administrativa e de atÃ© 60 dias Ãºteis para a atualizaÃ§Ã£o completa do cadastro do CONTRATANTE, observados fatores sistÃªmicos de cada instituiÃ§Ã£o.</p>
+  <p>2.4 As informaÃ§Ãµes passadas antes da assinatura, no momento do checklist, sÃ£o de total responsabilidade do CONTRATANTE.</p>
 
-  <h2>3. Das obrigações do contratante</h2>
-  <p>3.1 O CONTRATANTE deve fornecer informações completas, verídicas e atualizadas, bem como todos os documentos necessários à análise de sua situação creditícia.</p>
-  <p>3.2 O CONTRATANTE deve seguir as orientações da CONTRATADA e manter comportamento financeiro adequado, evitando solicitações excessivas de crédito, consultas excessivas ao CPF/CNPJ, atrasos em contas, decisões financeiras prejudiciais e demais condutas que possam comprometer o processo de Rating.</p>
-  <p>3.3 O CONTRATANTE declara ter ciência de que a CONTRATADA não se responsabiliza por cheques devolvidos, quitação de dívidas, processos ou débitos existentes em seu nome.</p>
+  <h2>3. Das obrigaÃ§Ãµes do contratante</h2>
+  <p>3.1 O CONTRATANTE deve fornecer informaÃ§Ãµes completas, verÃ­dicas e atualizadas, bem como todos os documentos necessÃ¡rios Ã  anÃ¡lise de sua situaÃ§Ã£o creditÃ­cia.</p>
+  <p>3.2 O CONTRATANTE deve seguir as orientaÃ§Ãµes da CONTRATADA e manter comportamento financeiro adequado, evitando solicitaÃ§Ãµes excessivas de crÃ©dito, consultas excessivas ao CPF/CNPJ, atrasos em contas, decisÃµes financeiras prejudiciais e demais condutas que possam comprometer o processo de Rating.</p>
+  <p>3.3 O CONTRATANTE declara ter ciÃªncia de que a CONTRATADA nÃ£o se responsabiliza por cheques devolvidos, quitaÃ§Ã£o de dÃ­vidas, processos ou dÃ©bitos existentes em seu nome.</p>
 
-  <h2>4. Das obrigações da contratada</h2>
-  <p>4.1 O CONTRATANTE está ciente de que o serviço Rating é baseado em análise, orientação e estratégia, não havendo garantia de resultado específico, como aprovação de crédito, aumento de score ou retirada de registros.</p>
-  <p>4.2 A CONTRATADA não se responsabiliza por negativa de crédito por instituições financeiras, manutenção ou inclusão de registros por terceiros, alterações nas regras de análise de crédito ou existência de dívidas legítimas.</p>
-  <p>4.3 Eventual responsabilidade da CONTRATADA ficará limitada ao valor efetivamente pago pelo CONTRATANTE neste contrato.</p>
+  <h2>4. Das obrigaÃ§Ãµes da contratada</h2>
+  <p>4.1 O CONTRATANTE estÃ¡ ciente de que o serviÃ§o Rating Ã© baseado em anÃ¡lise, orientaÃ§Ã£o e estratÃ©gia, nÃ£o havendo garantia de resultado especÃ­fico, como aprovaÃ§Ã£o de crÃ©dito, aumento de score ou retirada de registros.</p>
+  <p>4.2 A CONTRATADA nÃ£o se responsabiliza por negativa de crÃ©dito por instituiÃ§Ãµes financeiras, manutenÃ§Ã£o ou inclusÃ£o de registros por terceiros, alteraÃ§Ãµes nas regras de anÃ¡lise de crÃ©dito ou existÃªncia de dÃ­vidas legÃ­timas.</p>
+  <p>4.3 Eventual responsabilidade da CONTRATADA ficarÃ¡ limitada ao valor efetivamente pago pelo CONTRATANTE neste contrato.</p>
 
   <h2>5. Do inadimplemento, descumprimento e multa</h2>
-  <p>5.1 Em caso de inadimplência do CONTRATANTE quanto ao pagamento do serviço, incidirá multa de 10% sobre o valor total, juros de mora de 1% ao mês e correção monetária.</p>
-  <p>5.2 A inadimplência poderá suspender temporariamente a execução do serviço até a regularização e poderá levar o débito à cobrança administrativa, protesto ou via judicial, conforme legislação aplicável.</p>
-  <p>5.3 Não poderá o presente instrumento ser rescindido unilateralmente e sem motivo por nenhuma das partes, sob pena de responsabilização por danos materiais, lucros cessantes e multa.</p>
+  <p>5.1 Em caso de inadimplÃªncia do CONTRATANTE quanto ao pagamento do serviÃ§o, incidirÃ¡ multa de 10% sobre o valor total, juros de mora de 1% ao mÃªs e correÃ§Ã£o monetÃ¡ria.</p>
+  <p>5.2 A inadimplÃªncia poderÃ¡ suspender temporariamente a execuÃ§Ã£o do serviÃ§o atÃ© a regularizaÃ§Ã£o e poderÃ¡ levar o dÃ©bito Ã  cobranÃ§a administrativa, protesto ou via judicial, conforme legislaÃ§Ã£o aplicÃ¡vel.</p>
+  <p>5.3 NÃ£o poderÃ¡ o presente instrumento ser rescindido unilateralmente e sem motivo por nenhuma das partes, sob pena de responsabilizaÃ§Ã£o por danos materiais, lucros cessantes e multa.</p>
 
-  <h2>6. Do compromisso com a execução do serviço</h2>
-  <p>6.1 A CONTRATADA assume o compromisso de realizar o serviço em até 60 dias úteis, tendo como marco inicial a assinatura e confirmação do pagamento.</p>
-  <p>6.2 O prazo poderá ser prorrogado por motivo de força maior, recesso, calamidade pública, prorrogação de prazos ou qualquer outro motivo que impeça a atuação da empresa.</p>
+  <h2>6. Do compromisso com a execuÃ§Ã£o do serviÃ§o</h2>
+  <p>6.1 A CONTRATADA assume o compromisso de realizar o serviÃ§o em atÃ© 60 dias Ãºteis, tendo como marco inicial a assinatura e confirmaÃ§Ã£o do pagamento.</p>
+  <p>6.2 O prazo poderÃ¡ ser prorrogado por motivo de forÃ§a maior, recesso, calamidade pÃºblica, prorrogaÃ§Ã£o de prazos ou qualquer outro motivo que impeÃ§a a atuaÃ§Ã£o da empresa.</p>
 
-  <h2>7. Das condições gerais</h2>
-  <p>7.1 Fica de comum acordo a inexistência de vínculo trabalhista entre as partes.</p>
-  <p>7.2 O CONTRATANTE autoriza a CONTRATADA a utilizar, para fins institucionais e de divulgação de resultados, informações relacionadas ao andamento ou conclusão do serviço, desde que de forma genérica e sem identificação direta.</p>
+  <h2>7. Das condiÃ§Ãµes gerais</h2>
+  <p>7.1 Fica de comum acordo a inexistÃªncia de vÃ­nculo trabalhista entre as partes.</p>
+  <p>7.2 O CONTRATANTE autoriza a CONTRATADA a utilizar, para fins institucionais e de divulgaÃ§Ã£o de resultados, informaÃ§Ãµes relacionadas ao andamento ou conclusÃ£o do serviÃ§o, desde que de forma genÃ©rica e sem identificaÃ§Ã£o direta.</p>
 
   <h2>8. Do foro</h2>
-  <p>8.1 As partes elegem o foro da ${escapeHtml(settings.forum)} para dirimir controvérsias inerentes ao presente contrato.</p>
+  <p>8.1 As partes elegem o foro da ${escapeHtml(settings.forum)} para dirimir controvÃ©rsias inerentes ao presente contrato.</p>
   <p class="avoid-break">${escapeHtml(form.local || settings.defaultLocal)}, ${escapeHtml(formatLongDate(form.contractDate))}.</p>
 
   <section class="signatures">
@@ -1793,7 +1897,7 @@ function buildRatingPrintableHtml(
     <div class="signature"><div class="line">CONTRATANTE</div><div class="muted">${escapeHtml(form.clientName || "Cliente")}</div></div>
     <div class="signature"><div class="line">TESTEMUNHA 1</div></div>
     <div class="signature"><div class="line">TESTEMUNHA 2</div></div>
-    <div class="signature"><div class="line">RESPONSÁVEL PELA VENDA</div><div class="muted">${escapeHtml(form.seller || "Vendedor responsável")}${form.sellerRole ? ` - ${escapeHtml(form.sellerRole)}` : ""}</div></div>
+    <div class="signature"><div class="line">RESPONSÃVEL PELA VENDA</div><div class="muted">${escapeHtml(form.seller || "Vendedor responsÃ¡vel")}${form.sellerRole ? ` - ${escapeHtml(form.sellerRole)}` : ""}</div></div>
   </section>
   ${signatureEvidence}
 </main>
@@ -1816,8 +1920,8 @@ export function buildFullPrintableHtml(
   const mark = (active: boolean) => `<span class="checkbox">${active ? "X" : ""}</span>`;
   const creditLabel =
     form.paymentMethod === "credito"
-      ? `Cartão de Crédito - ${form.installments}x`
-      : "Cartão de Crédito";
+      ? `CartÃ£o de CrÃ©dito - ${form.installments}x`
+      : "CartÃ£o de CrÃ©dito";
   const signatureEvidence = buildSignatureEvidenceHtml(evidence);
 
   return `<!doctype html>
@@ -1912,70 +2016,70 @@ export function buildFullPrintableHtml(
 </head>
 <body>
 <main>
-  <h1>Contrato de Prestação de Serviços de Consultoria e Intermediação</h1>
-  <p class="subtitle">(Serviços Administrativos e de Contestação de Apontamentos em Cadastro de Crédito - "Limpa Nome")</p>
+  <h1>Contrato de PrestaÃ§Ã£o de ServiÃ§os de Consultoria e IntermediaÃ§Ã£o</h1>
+  <p class="subtitle">(ServiÃ§os Administrativos e de ContestaÃ§Ã£o de Apontamentos em Cadastro de CrÃ©dito - "Limpa Nome")</p>
 
   <p>Pelo presente instrumento particular de contrato, de um lado:</p>
-  <p class="party"><strong>CONTRATADA:</strong> ${escapeHtml(settings.companyName)}, pessoa jurídica de direito privado, inscrita no CNPJ sob nº ${escapeHtml(settings.companyDoc || "[CNPJ da empresa]")}, com sede em ${escapeHtml(settings.companyAddress)}, neste ato representada por seu representante legal ${escapeHtml(settings.legalRepresentative)}, doravante denominada CONTRATADA.</p>
+  <p class="party"><strong>CONTRATADA:</strong> ${escapeHtml(settings.companyName)}, pessoa jurÃ­dica de direito privado, inscrita no CNPJ sob nÂº ${escapeHtml(settings.companyDoc || "[CNPJ da empresa]")}, com sede em ${escapeHtml(settings.companyAddress)}, neste ato representada por seu representante legal ${escapeHtml(settings.legalRepresentative)}, doravante denominada CONTRATADA.</p>
 
   <p>E, de outro lado:</p>
-  <p class="party"><strong>CONTRATANTE:</strong> ${escapeHtml(form.clientName || "[Nome do cliente]")}, ${escapeHtml(form.nationality || "[nacionalidade]")}, ${escapeHtml(form.maritalStatus || "[estado civil]")}, ${escapeHtml(form.profession || "[profissão]")}, portador(a) do CPF/CNPJ nº ${escapeHtml(form.clientDoc || "[CPF/CNPJ]")} e RG nº ${escapeHtml(form.clientRg || "[RG]")}, residente e domiciliado(a) em ${escapeHtml(form.clientAddress || "[endereço]")}, doravante denominado CONTRATANTE.</p>
+  <p class="party"><strong>CONTRATANTE:</strong> ${escapeHtml(form.clientName || "[Nome do cliente]")}, ${escapeHtml(form.nationality || "[nacionalidade]")}, ${escapeHtml(form.maritalStatus || "[estado civil]")}, ${escapeHtml(form.profession || "[profissÃ£o]")}, portador(a) do CPF/CNPJ nÂº ${escapeHtml(form.clientDoc || "[CPF/CNPJ]")} e RG nÂº ${escapeHtml(form.clientRg || "[RG]")}, residente e domiciliado(a) em ${escapeHtml(form.clientAddress || "[endereÃ§o]")}, doravante denominado CONTRATANTE.</p>
 
-  <h2>Cláusula Primeira - Do Objeto</h2>
-  <p>1.1 O presente contrato tem por objeto a prestação de consultoria e intermediação de serviços administrativos relacionados à contestação de apontamentos restritivos em cadastros de crédito (SPC, Serasa, Boa Vista e Cenprot).</p>
-  <p>1.2 A CONTRATADA atua exclusivamente na função de consultoria, gestão administrativa e intermediação, conectando o CONTRATANTE a parceiros jurídicos regularmente habilitados, que são os responsáveis técnicos pela condução dos procedimentos administrativos ou judiciais.</p>
-  <p>1.3 A CONTRATADA não executa serviços jurídicos próprios, não atua como escritório de advocacia e não presta assessoria jurídica direta.</p>
+  <h2>ClÃ¡usula Primeira - Do Objeto</h2>
+  <p>1.1 O presente contrato tem por objeto a prestaÃ§Ã£o de consultoria e intermediaÃ§Ã£o de serviÃ§os administrativos relacionados Ã  contestaÃ§Ã£o de apontamentos restritivos em cadastros de crÃ©dito (SPC, Serasa, Boa Vista e Cenprot).</p>
+  <p>1.2 A CONTRATADA atua exclusivamente na funÃ§Ã£o de consultoria, gestÃ£o administrativa e intermediaÃ§Ã£o, conectando o CONTRATANTE a parceiros jurÃ­dicos regularmente habilitados, que sÃ£o os responsÃ¡veis tÃ©cnicos pela conduÃ§Ã£o dos procedimentos administrativos ou judiciais.</p>
+  <p>1.3 A CONTRATADA nÃ£o executa serviÃ§os jurÃ­dicos prÃ³prios, nÃ£o atua como escritÃ³rio de advocacia e nÃ£o presta assessoria jurÃ­dica direta.</p>
 
-  <h2>Cláusula Segunda - Da Natureza do Serviço</h2>
+  <h2>ClÃ¡usula Segunda - Da Natureza do ServiÃ§o</h2>
   <p>2.1 O CONTRATANTE declara estar ciente de que:</p>
-  <p>- O serviço contratado não implica na quitação, renegociação ou extinção da dívida originária;</p>
-  <p>- O objetivo é questionar a legitimidade dos apontamentos restritivos com base no Código de Defesa do Consumidor e normas aplicáveis;</p>
-  <p>- Trata-se de medida administrativa ou judicial que pode incluir ações coletivas conduzidas por parceiros especializados;</p>
-  <p>- Para resguardar dados sensíveis de todos os envolvidos em ações coletivas, não será fornecido número individual de processo, mas a CONTRATADA garantirá relatórios periódicos sobre o andamento.</p>
+  <p>- O serviÃ§o contratado nÃ£o implica na quitaÃ§Ã£o, renegociaÃ§Ã£o ou extinÃ§Ã£o da dÃ­vida originÃ¡ria;</p>
+  <p>- O objetivo Ã© questionar a legitimidade dos apontamentos restritivos com base no CÃ³digo de Defesa do Consumidor e normas aplicÃ¡veis;</p>
+  <p>- Trata-se de medida administrativa ou judicial que pode incluir aÃ§Ãµes coletivas conduzidas por parceiros especializados;</p>
+  <p>- Para resguardar dados sensÃ­veis de todos os envolvidos em aÃ§Ãµes coletivas, nÃ£o serÃ¡ fornecido nÃºmero individual de processo, mas a CONTRATADA garantirÃ¡ relatÃ³rios periÃ³dicos sobre o andamento.</p>
 
-  <h2>Cláusula Terceira - Do Prazo</h2>
-  <p>3.1 O prazo estimado para conclusão inicial dos procedimentos é de ${escapeHtml(settings.initialDeadline)}, prorrogáveis, por igual período, em caso de necessidade técnica.</p>
-  <p>3.2 Caso, após o prazo de 120 (cento e vinte) dias úteis, não seja possível apresentar documento que comprove a retirada do apontamento (ex.: certidão ou consulta atualizada), poderá ser solicitado pelo CONTRATANTE o reembolso dos valores pagos, desde que não haja inadimplência.</p>
+  <h2>ClÃ¡usula Terceira - Do Prazo</h2>
+  <p>3.1 O prazo estimado para conclusÃ£o inicial dos procedimentos Ã© de ${escapeHtml(settings.initialDeadline)}, prorrogÃ¡veis, por igual perÃ­odo, em caso de necessidade tÃ©cnica.</p>
+  <p>3.2 Caso, apÃ³s o prazo de 120 (cento e vinte) dias Ãºteis, nÃ£o seja possÃ­vel apresentar documento que comprove a retirada do apontamento (ex.: certidÃ£o ou consulta atualizada), poderÃ¡ ser solicitado pelo CONTRATANTE o reembolso dos valores pagos, desde que nÃ£o haja inadimplÃªncia.</p>
 
-  <h2>Cláusula Quarta - Da Garantia</h2>
-  <p>4.1 O CONTRATANTE terá cobertura de ${escapeHtml(settings.warrantyMonths)} meses contados a partir da entrega do documento comprobatório de retirada do apontamento.</p>
-  <p>4.2 Caso surjam novos apontamentos restritivos no mesmo período, a CONTRATADA providenciará, sem custos adicionais, a intermediação para retirada.</p>
-  <p>4.3 Caso as restrições contestadas retornem em razão de eventual queda da liminar, o processo será refeito dentro do mesmo prazo previsto na Cláusula Terceira, estando o CONTRATANTE coberto pela garantia.</p>
-  <p>4.4 Caso o CONTRATANTE opte por ingressar em novo processo sem aguardar o reprocessamento em curso, deverá pagar novamente a Taxa de Abertura de Processo (TAP) vigente e terá o seu novo Nada Consta no prazo médio de 15 dias úteis.</p>
+  <h2>ClÃ¡usula Quarta - Da Garantia</h2>
+  <p>4.1 O CONTRATANTE terÃ¡ cobertura de ${escapeHtml(settings.warrantyMonths)} meses contados a partir da entrega do documento comprobatÃ³rio de retirada do apontamento.</p>
+  <p>4.2 Caso surjam novos apontamentos restritivos no mesmo perÃ­odo, a CONTRATADA providenciarÃ¡, sem custos adicionais, a intermediaÃ§Ã£o para retirada.</p>
+  <p>4.3 Caso as restriÃ§Ãµes contestadas retornem em razÃ£o de eventual queda da liminar, o processo serÃ¡ refeito dentro do mesmo prazo previsto na ClÃ¡usula Terceira, estando o CONTRATANTE coberto pela garantia.</p>
+  <p>4.4 Caso o CONTRATANTE opte por ingressar em novo processo sem aguardar o reprocessamento em curso, deverÃ¡ pagar novamente a Taxa de Abertura de Processo (TAP) vigente e terÃ¡ o seu novo Nada Consta no prazo mÃ©dio de 15 dias Ãºteis.</p>
 
-  <h2>Cláusula Quinta - Do Valor e Forma de Pagamento</h2>
-  <p>5.1 Pelo presente contrato, o CONTRATANTE pagará à CONTRATADA:</p>
-  <p>I - Taxa de Abertura de Processo (TAP): ${escapeHtml(tap)}; II - Honorários de Consultoria e Intermediação: ${escapeHtml(fee)}.</p>
+  <h2>ClÃ¡usula Quinta - Do Valor e Forma de Pagamento</h2>
+  <p>5.1 Pelo presente contrato, o CONTRATANTE pagarÃ¡ Ã  CONTRATADA:</p>
+  <p>I - Taxa de Abertura de Processo (TAP): ${escapeHtml(tap)}; II - HonorÃ¡rios de Consultoria e IntermediaÃ§Ã£o: ${escapeHtml(fee)}.</p>
   <p><strong>Valor total contratado:</strong> ${escapeHtml(total)}.</p>
-  <p>O valor acordado será pago:</p>
+  <p>O valor acordado serÃ¡ pago:</p>
   <div class="payment-box avoid-break">
-    <span class="payment-row">${mark(form.paymentMethod === "avista")} À vista/Pix</span>
+    <span class="payment-row">${mark(form.paymentMethod === "avista")} Ã€ vista/Pix</span>
     <span class="payment-row">${mark(form.paymentMethod === "credito")} ${escapeHtml(creditLabel)}</span>
-    <span class="payment-row">${mark(false)} Boleto bancário</span>
+    <span class="payment-row">${mark(false)} Boleto bancÃ¡rio</span>
     <span class="payment-row">${mark(form.paymentMethod === "prazo_pix")} Prazo Pix - entrada de ${escapeHtml(tap)} e saldo de ${escapeHtml(fee)} em 30 dias</span>
   </div>
-  <p>5.2 O pagamento deverá ser realizado em até 15 (quinze) dias úteis da assinatura.</p>
-  <p>5.3 Em caso de inadimplência, os serviços ficarão suspensos temporariamente até a regularização. Durante esse período, a garantia contratual ficará suspensa, retomando seus efeitos com a quitação.</p>
+  <p>5.2 O pagamento deverÃ¡ ser realizado em atÃ© 15 (quinze) dias Ãºteis da assinatura.</p>
+  <p>5.3 Em caso de inadimplÃªncia, os serviÃ§os ficarÃ£o suspensos temporariamente atÃ© a regularizaÃ§Ã£o. Durante esse perÃ­odo, a garantia contratual ficarÃ¡ suspensa, retomando seus efeitos com a quitaÃ§Ã£o.</p>
 
-  <h2>Cláusula Sexta - Da Multa Contratual</h2>
-  <p>6.1 Em caso de descumprimento contratual pelo CONTRATANTE, incluindo, mas não se limitando a fornecimento de informações falsas, inadimplência não regularizada, tentativa de contratação paralela de serviços idênticos ou desistência injustificada, será aplicada multa compensatória de até R$ 5.000,00 (cinco mil reais), proporcional ao valor do contrato e limitada ao montante efetivamente contratado.</p>
+  <h2>ClÃ¡usula Sexta - Da Multa Contratual</h2>
+  <p>6.1 Em caso de descumprimento contratual pelo CONTRATANTE, incluindo, mas nÃ£o se limitando a fornecimento de informaÃ§Ãµes falsas, inadimplÃªncia nÃ£o regularizada, tentativa de contrataÃ§Ã£o paralela de serviÃ§os idÃªnticos ou desistÃªncia injustificada, serÃ¡ aplicada multa compensatÃ³ria de atÃ© R$ 5.000,00 (cinco mil reais), proporcional ao valor do contrato e limitada ao montante efetivamente contratado.</p>
 
-  <h2>Cláusula Sétima - Das Responsabilidades da Contratada</h2>
-  <p>7.1 A CONTRATADA se compromete a realizar a consultoria e intermediação de forma diligente, manter o CONTRATANTE informado sobre o andamento e intermediar com parceiros especializados devidamente habilitados.</p>
-  <p>7.2 A CONTRATADA não se responsabiliza por decisão desfavorável judicial ou administrativa, eventual queda de liminar ou retorno de restrições, restrições novas e não relacionadas ao objeto inicial ou expectativas de concessão de crédito não atendidas.</p>
+  <h2>ClÃ¡usula SÃ©tima - Das Responsabilidades da Contratada</h2>
+  <p>7.1 A CONTRATADA se compromete a realizar a consultoria e intermediaÃ§Ã£o de forma diligente, manter o CONTRATANTE informado sobre o andamento e intermediar com parceiros especializados devidamente habilitados.</p>
+  <p>7.2 A CONTRATADA nÃ£o se responsabiliza por decisÃ£o desfavorÃ¡vel judicial ou administrativa, eventual queda de liminar ou retorno de restriÃ§Ãµes, restriÃ§Ãµes novas e nÃ£o relacionadas ao objeto inicial ou expectativas de concessÃ£o de crÃ©dito nÃ£o atendidas.</p>
 
-  <h2>Cláusula Oitava - Das Declarações do Contratante</h2>
-  <p>8.1 O CONTRATANTE declara que está ciente de que a CONTRATADA não presta serviços jurídicos diretos, reconhece que não há garantia de êxito, reconhece que o serviço não extingue ou quita a dívida original e está informado sobre a possibilidade de uso de ações coletivas.</p>
+  <h2>ClÃ¡usula Oitava - Das DeclaraÃ§Ãµes do Contratante</h2>
+  <p>8.1 O CONTRATANTE declara que estÃ¡ ciente de que a CONTRATADA nÃ£o presta serviÃ§os jurÃ­dicos diretos, reconhece que nÃ£o hÃ¡ garantia de Ãªxito, reconhece que o serviÃ§o nÃ£o extingue ou quita a dÃ­vida original e estÃ¡ informado sobre a possibilidade de uso de aÃ§Ãµes coletivas.</p>
 
-  <h2>Cláusula Nona - Do Foro</h2>
-  <p>9.1 Fica eleito o foro da ${escapeHtml(settings.forum)} para dirimir quaisquer litígios oriundos deste contrato.</p>
+  <h2>ClÃ¡usula Nona - Do Foro</h2>
+  <p>9.1 Fica eleito o foro da ${escapeHtml(settings.forum)} para dirimir quaisquer litÃ­gios oriundos deste contrato.</p>
 
-  <p class="avoid-break">E por estarem justos e contratados, firmam o presente instrumento em 02 (duas) vias de igual teor, juntamente com 02 (duas) testemunhas, para que produza seus jurídicos e legais efeitos. ${escapeHtml(form.local || settings.defaultLocal)}, ${escapeHtml(formatLongDate(form.contractDate))}.</p>
+  <p class="avoid-break">E por estarem justos e contratados, firmam o presente instrumento em 02 (duas) vias de igual teor, juntamente com 02 (duas) testemunhas, para que produza seus jurÃ­dicos e legais efeitos. ${escapeHtml(form.local || settings.defaultLocal)}, ${escapeHtml(formatLongDate(form.contractDate))}.</p>
 
   <section class="signatures">
     <div class="signature"><div class="line">CONTRATANTE</div><div class="muted">${escapeHtml(form.clientName || "Cliente")}</div></div>
     <div class="signature"><div class="line">CONTRATADA</div><div class="muted">${escapeHtml(settings.companyName)}</div></div>
-    <div class="signature"><div class="line">RESPONSÁVEL PELA VENDA</div><div class="muted">${escapeHtml(form.seller || "Vendedor responsável")}${form.sellerRole ? ` - ${escapeHtml(form.sellerRole)}` : ""}</div></div>
+    <div class="signature"><div class="line">RESPONSÃVEL PELA VENDA</div><div class="muted">${escapeHtml(form.seller || "Vendedor responsÃ¡vel")}${form.sellerRole ? ` - ${escapeHtml(form.sellerRole)}` : ""}</div></div>
     <div class="signature"><div class="line">TESTEMUNHA</div></div>
   </section>
   ${signatureEvidence}
@@ -1992,7 +2096,7 @@ function buildSignatureEvidenceHtml(evidence?: ContractPrintEvidence) {
       return `
       <div>
         <p><strong>${title}</strong></p>
-        <p class="muted">Assinatura ainda não registrada.</p>
+        <p class="muted">Assinatura ainda nÃ£o registrada.</p>
       </div>`;
     }
 
@@ -2000,7 +2104,7 @@ function buildSignatureEvidenceHtml(evidence?: ContractPrintEvidence) {
       <div>
         <p><strong>${title}</strong></p>
         <p>${escapeHtml(item.name)} - ${escapeHtml(new Date(item.signedAt).toLocaleString("pt-BR"))}</p>
-        <p><strong>Selfie de validação</strong></p>
+        <p><strong>Selfie de validaÃ§Ã£o</strong></p>
         <img src="${item.selfie}" alt="Selfie de ${escapeHtml(item.name)}" />
         <p><strong>Assinatura digital</strong></p>
         <img src="${item.signature}" alt="Assinatura de ${escapeHtml(item.name)}" />
@@ -2010,10 +2114,10 @@ function buildSignatureEvidenceHtml(evidence?: ContractPrintEvidence) {
   return `
   <section class="signature-evidence">
     <h2>Registro de Assinaturas Digitais</h2>
-    <p><strong>Método:</strong> validação por selfie, assinatura desenhada em tela e aceite eletrônico.</p>
+    <p><strong>MÃ©todo:</strong> validaÃ§Ã£o por selfie, assinatura desenhada em tela e aceite eletrÃ´nico.</p>
     <div class="evidence-grid">
       ${evidenceCard("Contratante", evidence.client)}
-      ${evidenceCard("Responsável pela venda", evidence.seller)}
+      ${evidenceCard("ResponsÃ¡vel pela venda", evidence.seller)}
     </div>
   </section>`;
 }
@@ -2025,3 +2129,4 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+

@@ -17,6 +17,7 @@ import {
   restoreDemoData,
   type DataKey,
 } from "@/lib/data-management";
+import { formatBrazilianPhone } from "@/lib/br-inputs";
 
 export const Route = createFileRoute("/_app/settings")({
   component: SettingsPage,
@@ -173,7 +174,7 @@ function SettingsPage() {
             <SettingsField
               label="Telefone"
               value={settings.company.phone}
-              onChange={(value) => updateCompany("phone", value)}
+              onChange={(value) => updateCompany("phone", formatBrazilianPhone(value))}
             />
           </div>
           <Button className="mt-4 gradient-primary text-primary-foreground" onClick={save}>
