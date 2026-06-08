@@ -246,7 +246,7 @@ function DigitalSignaturePage() {
       }
     } catch {
       toast.warning(
-        "Assinatura salva neste aparelho. Tente novamente se ela nÃ£o aparecer no painel.",
+        "Assinatura salva neste aparelho. Tente novamente se ela não aparecer no painel.",
       );
     }
     toast.success(

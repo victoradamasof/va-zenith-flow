@@ -68,20 +68,20 @@ function normalizeInvestmentText(value: unknown, fallback: string) {
     .toLowerCase();
   const directMap: Record<string, string> = {
     "gestao de trafego": "Gestão de tráfego",
-    "gestao de trÃ¡fego": "Gestão de tráfego",
-    "gestÃ£o de trÃ¡fego": "Gestão de tráfego",
+    "gestao de tráfego": "Gestão de tráfego",
+    "gestão de tráfego": "Gestão de tráfego",
     trafego: "Tráfego",
     "calcao/aluguel": "Caução/aluguel",
     "calção/aluguel": "Caução/aluguel",
     "espaco fisico": "Espaço físico",
-    "espaÃ§o fisico": "Espaço físico",
+    "espaço fisico": "Espaço físico",
     operacao: "Operação",
-    "operaÃ§ao": "Operação",
+    "operaçao": "Operação",
     decoracao: "Decoração",
-    "decoraÃ§ao": "Decoração",
+    "decoraçao": "Decoração",
     macbook: "MacBook",
     "acessorios cel/limpeza": "Acessórios celular/limpeza",
-    "acessÃ³rios cel/limpeza": "Acessórios celular/limpeza",
+    "acessórios cel/limpeza": "Acessórios celular/limpeza",
   };
 
   return directMap[normalized] ?? directMap[text.toLowerCase()] ?? text;
