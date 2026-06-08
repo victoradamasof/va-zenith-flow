@@ -120,6 +120,7 @@ export type ContractForm = {
   feeValue: string;
   paymentMethod: PaymentMethod;
   installments: string;
+  paymentTerms: string;
   notes: string;
 };
 
@@ -195,6 +196,7 @@ const emptyForm: ContractForm = {
   feeValue: "",
   paymentMethod: "avista",
   installments: "1",
+  paymentTerms: "À vista",
   notes: "",
 };
 
@@ -220,6 +222,22 @@ const paymentLabels: Record<PaymentMethod, string> = {
   prazo_pix: "Prazo Pix",
   credito: "Cartão de crédito",
 };
+
+function getDefaultPaymentTerms(paymentMethod: PaymentMethod, installments = "1") {
+  if (paymentMethod === "credito") return `${installments || "1"}x`;
+  if (paymentMethod === "prazo_pix") return "Entrada + 30 dias";
+  return "À vista";
+}
+
+function getPaymentDescription(form: Pick<ContractForm, "paymentMethod" | "installments" | "paymentTerms">) {
+  if (form.paymentMethod === "credito") {
+    return `Cartão de Crédito em ${form.installments || "1"}x`;
+  }
+
+  const terms = form.paymentTerms?.trim() || getDefaultPaymentTerms(form.paymentMethod, form.installments);
+  if (form.paymentMethod === "prazo_pix") return `Prazo Pix - ${terms}`;
+  return terms;
+}
 
 export type ContractSigningPayload = {
   contractId?: string;
@@ -430,6 +448,10 @@ function Contracts() {
       feeValue: total > 0 ? formatCurrencyInput(feeValue) : "",
       paymentMethod,
       installments: String(latestSale?.installments ?? client.installments ?? 1),
+      paymentTerms: getDefaultPaymentTerms(
+        paymentMethod,
+        String(latestSale?.installments ?? client.installments ?? 1),
+      ),
     }));
   };
 
@@ -726,7 +748,14 @@ function Contracts() {
               <ContractSelect
                 label="Forma de pagamento"
                 value={form.paymentMethod}
-                onChange={(value) => updateForm("paymentMethod", value)}
+                onChange={(value) => {
+                  const paymentMethod = value as PaymentMethod;
+                  setForm((current) => ({
+                    ...current,
+                    paymentMethod,
+                    paymentTerms: getDefaultPaymentTerms(paymentMethod, current.installments),
+                  }));
+                }}
                 options={paymentMethods.map((method) => ({
                   value: method.value,
                   label: method.label,
@@ -745,9 +774,9 @@ function Contracts() {
               ) : (
                 <ContractField
                   label="Parcelamento"
-                  value={form.paymentMethod === "prazo_pix" ? "Entrada + 30 dias" : "À vista"}
-                  onChange={() => undefined}
-                  readOnly
+                  value={form.paymentTerms || getDefaultPaymentTerms(form.paymentMethod)}
+                  onChange={(value) => updateForm("paymentTerms", value)}
+                  placeholder={getDefaultPaymentTerms(form.paymentMethod)}
                 />
               )}
               <ContractSelect
@@ -1279,8 +1308,14 @@ function ContractPreview({
         Intermediação: {formatBRL(parseCurrencyInput(form.feeValue))}. Valor total:{" "}
         {formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}.
         <div className="mt-3 grid gap-2 rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
-          <PaymentMark active={form.paymentMethod === "avista"} label="À vista/Pix" />
-          <PaymentMark active={form.paymentMethod === "prazo_pix"} label="Prazo Pix" />
+          <PaymentMark
+            active={form.paymentMethod === "avista"}
+            label={form.paymentMethod === "avista" ? getPaymentDescription(form) : "À vista/Pix"}
+          />
+          <PaymentMark
+            active={form.paymentMethod === "prazo_pix"}
+            label={form.paymentMethod === "prazo_pix" ? getPaymentDescription(form) : "Prazo Pix"}
+          />
           <PaymentMark
             active={form.paymentMethod === "credito"}
             label={`Cartão de crédito${form.paymentMethod === "credito" ? ` - ${form.installments}x` : ""}`}
@@ -1392,8 +1427,7 @@ function RatingContractPreview({
       <ContractSection title="Valor e forma de pagamento">
         Custo do serviço:{" "}
         {formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}. Forma de
-        pagamento: {paymentLabels[form.paymentMethod]}
-        {form.paymentMethod === "credito" ? ` em ${form.installments}x` : ""}.
+        pagamento: {getPaymentDescription(form)}.
       </ContractSection>
       <p className="mt-8">
         {form.local || settings.defaultLocal}, {formatLongDate(form.contractDate)}.
@@ -1468,8 +1502,7 @@ function ConsultoriaCreditoContractPreview({
         Taxa de Abertura de Processo: {formatBRL(parseCurrencyInput(form.tapValue))}. Honorários de
         Consultoria em Crédito: {formatBRL(parseCurrencyInput(form.feeValue))}. Total:{" "}
         {formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}. Forma de
-        pagamento: {paymentLabels[form.paymentMethod]}
-        {form.paymentMethod === "credito" ? ` em ${form.installments}x` : ""}.
+        pagamento: {getPaymentDescription(form)}.
       </ContractSection>
       <ContractSection title="Cláusulas complementares">
         O contrato completo contempla obrigações do contratante, responsabilidades da contratada,
@@ -1684,7 +1717,7 @@ function buildContractText(form: ContractForm, settings: ContractSettings) {
     "",
     `Objeto: consultoria e intermediação de serviços administrativos relacionados à contestação de apontamentos restritivos em cadastros de crédito, serviço ${form.service}.`,
     `Valor: TAP ${formatBRL(parseCurrencyInput(form.tapValue))}; honorários ${formatBRL(parseCurrencyInput(form.feeValue))}; total ${formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue))}.`,
-    `Forma de pagamento: ${paymentLabels[form.paymentMethod]}${form.paymentMethod === "credito" ? ` em ${form.installments}x` : ""}.`,
+    `Forma de pagamento: ${getPaymentDescription(form)}.`,
     `Foro: ${settings.forum}.`,
     `${form.local}, ${formatLongDate(form.contractDate)}.`,
     "",
@@ -1726,10 +1759,7 @@ export function buildFullContractText(form: ContractForm, settings: ContractSett
   const tap = formatBRL(parseCurrencyInput(form.tapValue));
   const fee = formatBRL(parseCurrencyInput(form.feeValue));
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
-  const payment =
-    form.paymentMethod === "credito"
-      ? `Cartão de Crédito em ${form.installments}x`
-      : paymentLabels[form.paymentMethod];
+  const payment = getPaymentDescription(form);
 
   return [
     "CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA E INTERMEDIAÇÃO",
@@ -1799,10 +1829,7 @@ function buildConsultoriaCreditoContractText(form: ContractForm, settings: Contr
   const tap = formatBRL(parseCurrencyInput(form.tapValue));
   const fee = formatBRL(parseCurrencyInput(form.feeValue));
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
-  const payment =
-    form.paymentMethod === "credito"
-      ? `Cartão de Crédito em ${form.installments}x`
-      : paymentLabels[form.paymentMethod];
+  const payment = getPaymentDescription(form);
 
   return [
     "CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA EM CRÉDITO",
@@ -1879,10 +1906,7 @@ function buildConsultoriaCreditoContractText(form: ContractForm, settings: Contr
 
 function buildRatingContractText(form: ContractForm, settings: ContractSettings) {
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
-  const payment =
-    form.paymentMethod === "credito"
-      ? `Cartão de Crédito em ${form.installments}x`
-      : paymentLabels[form.paymentMethod];
+  const payment = getPaymentDescription(form);
 
   return [
     "CONTRATO DE PRESTAÇÃO DE SERVIÇOS",
@@ -1949,10 +1973,7 @@ function buildRatingPrintableHtml(
   evidence?: ContractPrintEvidence,
 ) {
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
-  const payment =
-    form.paymentMethod === "credito"
-      ? `Cartão de Crédito em ${form.installments}x`
-      : paymentLabels[form.paymentMethod];
+  const payment = getPaymentDescription(form);
   const signatureEvidence = buildSignatureEvidenceHtml(evidence);
 
   return `<!doctype html>
@@ -2055,10 +2076,7 @@ function buildConsultoriaCreditoPrintableHtml(
   const tap = formatBRL(parseCurrencyInput(form.tapValue));
   const fee = formatBRL(parseCurrencyInput(form.feeValue));
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
-  const payment =
-    form.paymentMethod === "credito"
-      ? `Cartão de Crédito em ${form.installments}x`
-      : paymentLabels[form.paymentMethod];
+  const payment = getPaymentDescription(form);
   const signatureEvidence = buildSignatureEvidenceHtml(evidence);
 
   return `<!doctype html>
@@ -2181,10 +2199,10 @@ export function buildFullPrintableHtml(
   const fee = formatBRL(parseCurrencyInput(form.feeValue));
   const total = formatBRL(parseCurrencyInput(form.tapValue) + parseCurrencyInput(form.feeValue));
   const mark = (active: boolean) => `<span class="checkbox">${active ? "X" : ""}</span>`;
-  const creditLabel =
-    form.paymentMethod === "credito"
-      ? `Cartão de Crédito - ${form.installments}x`
-      : "Cartão de Crédito";
+  const avistaLabel = form.paymentMethod === "avista" ? getPaymentDescription(form) : "À vista/Pix";
+  const creditLabel = form.paymentMethod === "credito" ? getPaymentDescription(form) : "Cartão de Crédito";
+  const prazoPixLabel =
+    form.paymentMethod === "prazo_pix" ? getPaymentDescription(form) : "Prazo Pix";
   const signatureEvidence = buildSignatureEvidenceHtml(evidence);
 
   return `<!doctype html>
@@ -2316,10 +2334,10 @@ export function buildFullPrintableHtml(
   <p><strong>Valor total contratado:</strong> ${escapeHtml(total)}.</p>
   <p>O valor acordado será pago:</p>
   <div class="payment-box avoid-break">
-    <span class="payment-row">${mark(form.paymentMethod === "avista")} À vista/Pix</span>
+    <span class="payment-row">${mark(form.paymentMethod === "avista")} ${escapeHtml(avistaLabel)}</span>
     <span class="payment-row">${mark(form.paymentMethod === "credito")} ${escapeHtml(creditLabel)}</span>
     <span class="payment-row">${mark(false)} Boleto bancário</span>
-    <span class="payment-row">${mark(form.paymentMethod === "prazo_pix")} Prazo Pix - entrada de ${escapeHtml(tap)} e saldo de ${escapeHtml(fee)} em 30 dias</span>
+    <span class="payment-row">${mark(form.paymentMethod === "prazo_pix")} ${escapeHtml(prazoPixLabel)}</span>
   </div>
   <p>5.2 O pagamento deverá ser realizado em até 15 (quinze) dias úteis da assinatura.</p>
   <p>5.3 Em caso de inadimplência, os serviços ficarão suspensos temporariamente até a regularização. Durante esse período, a garantia contratual ficará suspensa, retomando seus efeitos com a quitação.</p>
