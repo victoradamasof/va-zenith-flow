@@ -655,9 +655,17 @@ function getClientSummary(client: unknown) {
 }
 
 function getCreditPrompt(payload: CreditAnalysisRequest) {
-  return `Você é um especialista sênior em análise de crédito, score, rating bancário, relacionamento bancário e concessão de crédito no mercado brasileiro.
+  return `Você é um consultor sênior da VA Consultoria, especialista em análise de crédito no Brasil, score, rating bancário, relacionamento bancário, Registrato, birôs de crédito, capacidade de pagamento e estratégia real para aprovação.
 
-Analise os arquivos enviados e gere um diagnóstico prático para a VA Consultoria. Seja conservador: quando um dado não estiver claro, marque como null ou explique que não foi identificado.
+Sua função NÃO é apenas resumir o relatório. O relatório já mostra problemas básicos. Você deve:
+1. Extrair os dados objetivos do arquivo.
+2. Separar o que foi comprovado do que é inferência consultiva.
+3. Explicar o que impede aprovação hoje.
+4. Dizer exatamente o que fazer, em qual ordem, com prazo, motivo e ganho esperado.
+5. Estimar probabilidade atual e probabilidade após execução do plano, com justificativa clara.
+6. Ser prático, específico e conservador. Não prometa aprovação.
+7. Se faltar dado, liste o dado faltante e reduza a confiança da probabilidade.
+8. Priorize ações que uma consultoria de crédito realmente executaria: atualização cadastral, redução de consultas, regularização de restrições, relacionamento bancário, movimentação, saldo médio, documentação, escolha de banco e timing de nova tentativa.
 
 Cliente vinculado no CRM:
 ${JSON.stringify(getClientSummary(payload.client), null, 2)}
@@ -666,6 +674,20 @@ Objetivo declarado: ${payload.objective || "Não informado"}
 Valor desejado: ${payload.requestedAmount || 0}
 Tipo de operação: ${payload.operationType || "Não informado"}
 Observações internas: ${payload.notes || "Nenhuma"}
+
+Critérios para probabilidade:
+- Use 0 a 100.
+- "approvalProbabilityNow" deve refletir chance de aprovação HOJE para o tipo e valor solicitados.
+- "approvalProbabilityAfterPlan" deve refletir chance após executar o plano proposto, considerando o prazo estimado.
+- Não use números genéricos. Justifique com score, renda, dívidas, consultas, rating, saldo médio, relacionamento, valor solicitado e tipo de operação.
+- Quando houver poucos dados, use probabilidade mais baixa e "confidenceLevel": "baixa".
+- A probabilidade após plano não deve passar de 85 sem evidência forte de renda, score, baixo endividamento e relacionamento bancário.
+
+Tom de resposta:
+- Linguagem simples, direta e consultiva.
+- Escreva como se fosse entregar ao consultor da VA o roteiro de atendimento do cliente.
+- Evite frases vagas como "melhorar score" sem explicar como.
+- Não invente dados pessoais. Quando inferir, diga que é inferência.
 
 Retorne somente um JSON válido com este formato:
 {
@@ -691,9 +713,43 @@ Retorne somente um JSON válido com este formato:
     "customerProfile": "string",
     "approvalProbabilityNow": 0,
     "approvalProbabilityAfterPlan": 0,
+    "probabilityRationale": "Explique por que a chance atual e a chance após o plano foram calculadas assim.",
+    "confidenceLevel": "baixa|media|alta",
     "estimatedTimeToGoal": "string",
     "mainBlockers": ["string"],
     "opportunities": ["string"],
+    "missingData": ["string"],
+    "requiredDocuments": ["string"],
+    "dontDo": ["string"],
+    "consultantNotes": ["string"],
+    "immediatePlan": {
+      "title": "Primeiras 72 horas",
+      "actions": ["string"],
+      "expectedResult": "string"
+    },
+    "plan30Days": {
+      "title": "Plano de 30 dias",
+      "actions": ["string"],
+      "expectedResult": "string"
+    },
+    "plan60Days": {
+      "title": "Plano de 60 dias",
+      "actions": ["string"],
+      "expectedResult": "string"
+    },
+    "plan90Days": {
+      "title": "Plano de 90 dias",
+      "actions": ["string"],
+      "expectedResult": "string"
+    },
+    "bankStrategies": [
+      {
+        "bank": "string",
+        "fit": "baixo|medio|alto",
+        "reason": "string",
+        "firstMove": "string"
+      }
+    ],
     "issues": [
       {
         "title": "string",
@@ -758,6 +814,18 @@ function normalizePercent(value: unknown, fallback: number) {
   return Math.max(0, Math.min(100, Math.round(number)));
 }
 
+function normalizeStringArray(value: unknown, fallback: string[]) {
+  if (!Array.isArray(value)) return fallback;
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function normalizeRecordArray(value: unknown, fallback: unknown[]) {
+  if (!Array.isArray(value)) return fallback;
+  return value.filter((item) => item && typeof item === "object");
+}
+
 function buildFallbackCreditAnalysis(payload: CreditAnalysisRequest) {
   const client = getClientSummary(payload.client) as Record<string, unknown>;
   const requestedAmount = Number(payload.requestedAmount) || 0;
@@ -788,6 +856,9 @@ function buildFallbackCreditAnalysis(payload: CreditAnalysisRequest) {
         "Perfil ainda incompleto. É necessário anexar relatório Serasa/SPC/Registrato ou extrato bancário para validar score, renda, consultas e impeditivos.",
       approvalProbabilityNow: currentProbability,
       approvalProbabilityAfterPlan: Math.min(92, currentProbability + 28),
+      probabilityRationale:
+        "Estimativa preliminar baseada apenas no valor desejado, tipo de operação e dados do CRM. Sem score, renda, restrições e relacionamento bancário, a confiança é baixa e a probabilidade deve ser tratada como referência inicial.",
+      confidenceLevel: "baixa",
       estimatedTimeToGoal: "30 a 90 dias, conforme atualização cadastral, movimentação e regularização dos apontamentos.",
       mainBlockers: [
         "Documentação de crédito ainda não analisada por IA.",
@@ -796,6 +867,72 @@ function buildFallbackCreditAnalysis(payload: CreditAnalysisRequest) {
       opportunities: [
         "Vincular relatórios do cliente ao CRM para criar histórico de evolução.",
         "Padronizar plano de relacionamento bancário e atualização cadastral.",
+      ],
+      missingData: [
+        "Relatório completo de birô de crédito com score e apontamentos.",
+        "Registrato atualizado.",
+        "Extratos bancários dos últimos 90 dias.",
+        "Renda comprovada e valor das parcelas pretendidas.",
+      ],
+      requiredDocuments: [
+        "Documento pessoal ou contrato social, conforme PF/PJ.",
+        "Comprovante de residência atualizado.",
+        "Comprovante de renda ou faturamento.",
+        "Relatórios Serasa/SPC/Boa Vista/Quod e Registrato.",
+        "Extratos bancários recentes.",
+      ],
+      dontDo: [
+        "Não fazer múltiplas simulações em vários bancos antes de organizar o perfil.",
+        "Não pedir valor acima da capacidade de pagamento sem comprovação de renda.",
+        "Não alterar endereço, renda ou profissão de forma inconsistente entre cadastros.",
+      ],
+      consultantNotes: [
+        "Validar primeiro se há restrições, excesso de consultas e divergência cadastral.",
+        "A probabilidade deve ser recalculada após anexar documentos reais.",
+      ],
+      immediatePlan: {
+        title: "Primeiras 72 horas",
+        actions: [
+          "Coletar relatórios de crédito, Registrato e extratos.",
+          "Conferir dados cadastrais do cliente nos birôs e no banco principal.",
+          "Mapear objetivo, valor desejado, entrada disponível e prazo aceitável.",
+        ],
+        expectedResult: "Base mínima pronta para diagnóstico real e redução de tentativa errada.",
+      },
+      plan30Days: {
+        title: "Plano de 30 dias",
+        actions: [
+          "Regularizar pendências simples e corrigir dados divergentes.",
+          "Reduzir novas consultas de crédito.",
+          "Concentrar entradas no banco com maior chance de relacionamento.",
+        ],
+        expectedResult: "Perfil mais coerente para nova análise e menor ruído cadastral.",
+      },
+      plan60Days: {
+        title: "Plano de 60 dias",
+        actions: [
+          "Manter movimentação recorrente e saldo médio compatível com a parcela pretendida.",
+          "Organizar comprovantes de renda e histórico bancário.",
+          "Escolher banco e produto com base no perfil real do cliente.",
+        ],
+        expectedResult: "Aumento de consistência bancária e melhora da capacidade percebida.",
+      },
+      plan90Days: {
+        title: "Plano de 90 dias",
+        actions: [
+          "Reavaliar score, consultas e relacionamento bancário.",
+          "Simular somente nos canais com maior aderência.",
+          "Ajustar valor, entrada ou prazo antes da proposta final.",
+        ],
+        expectedResult: "Tentativa de crédito com timing melhor e documentação completa.",
+      },
+      bankStrategies: [
+        {
+          bank: "Banco de relacionamento atual",
+          fit: "medio",
+          reason: "Sem dados suficientes para indicar outro banco com segurança.",
+          firstMove: "Identificar onde o cliente já movimenta renda e há maior histórico.",
+        },
       ],
       issues: [
         {
@@ -864,6 +1001,23 @@ function normalizeCreditAnalysisResponse(payload: CreditAnalysisRequest, analysi
       opportunities: Array.isArray(diagnosis.opportunities)
         ? diagnosis.opportunities
         : fallback.diagnosis.opportunities,
+      missingData: normalizeStringArray(diagnosis.missingData, fallback.diagnosis.missingData),
+      requiredDocuments: normalizeStringArray(
+        diagnosis.requiredDocuments,
+        fallback.diagnosis.requiredDocuments,
+      ),
+      dontDo: normalizeStringArray(diagnosis.dontDo, fallback.diagnosis.dontDo),
+      consultantNotes: normalizeStringArray(
+        diagnosis.consultantNotes,
+        fallback.diagnosis.consultantNotes,
+      ),
+      bankStrategies: normalizeRecordArray(
+        diagnosis.bankStrategies,
+        fallback.diagnosis.bankStrategies,
+      ),
+      confidenceLevel: ["baixa", "media", "alta"].includes(String(diagnosis.confidenceLevel))
+        ? diagnosis.confidenceLevel
+        : fallback.diagnosis.confidenceLevel,
       issues: Array.isArray(diagnosis.issues) ? diagnosis.issues : fallback.diagnosis.issues,
       actions: Array.isArray(diagnosis.actions) ? diagnosis.actions : fallback.diagnosis.actions,
     },

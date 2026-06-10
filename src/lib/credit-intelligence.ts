@@ -14,6 +14,19 @@ export type CreditAction = {
   expectedGain: string;
 };
 
+export type CreditConsultingStep = {
+  title: string;
+  actions: string[];
+  expectedResult: string;
+};
+
+export type CreditBankStrategy = {
+  bank: string;
+  fit: string;
+  reason: string;
+  firstMove: string;
+};
+
 export type CreditAnalysisRecord = {
   id: string;
   clientId?: string;
@@ -49,9 +62,20 @@ export type CreditAnalysisRecord = {
     customerProfile: string;
     approvalProbabilityNow: number;
     approvalProbabilityAfterPlan: number;
+    probabilityRationale?: string;
+    confidenceLevel?: "baixa" | "media" | "alta";
     estimatedTimeToGoal: string;
     mainBlockers: string[];
     opportunities: string[];
+    missingData?: string[];
+    immediatePlan?: CreditConsultingStep;
+    plan30Days?: CreditConsultingStep;
+    plan60Days?: CreditConsultingStep;
+    plan90Days?: CreditConsultingStep;
+    bankStrategies?: CreditBankStrategy[];
+    requiredDocuments?: string[];
+    dontDo?: string[];
+    consultantNotes?: string[];
     issues: CreditIssue[];
     actions: CreditAction[];
   };
@@ -77,9 +101,16 @@ export const emptyCreditAnalysis: CreditAnalysisRecord = {
     customerProfile: "",
     approvalProbabilityNow: 0,
     approvalProbabilityAfterPlan: 0,
+    probabilityRationale: "",
+    confidenceLevel: "baixa",
     estimatedTimeToGoal: "",
     mainBlockers: [],
     opportunities: [],
+    missingData: [],
+    requiredDocuments: [],
+    dontDo: [],
+    consultantNotes: [],
+    bankStrategies: [],
     issues: [],
     actions: [],
   },
@@ -108,6 +139,19 @@ export function normalizeCreditAnalysis(value: unknown): CreditAnalysisRecord {
         : [],
       opportunities: Array.isArray(record.diagnosis?.opportunities)
         ? record.diagnosis.opportunities
+        : [],
+      missingData: Array.isArray(record.diagnosis?.missingData)
+        ? record.diagnosis.missingData
+        : [],
+      requiredDocuments: Array.isArray(record.diagnosis?.requiredDocuments)
+        ? record.diagnosis.requiredDocuments
+        : [],
+      dontDo: Array.isArray(record.diagnosis?.dontDo) ? record.diagnosis.dontDo : [],
+      consultantNotes: Array.isArray(record.diagnosis?.consultantNotes)
+        ? record.diagnosis.consultantNotes
+        : [],
+      bankStrategies: Array.isArray(record.diagnosis?.bankStrategies)
+        ? record.diagnosis.bankStrategies
         : [],
       issues: Array.isArray(record.diagnosis?.issues) ? record.diagnosis.issues : [],
       actions: Array.isArray(record.diagnosis?.actions) ? record.diagnosis.actions : [],

@@ -3,9 +3,9 @@ import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   FileSearch,
   LineChart,
+  Route as RouteIcon,
   ShieldCheck,
   Upload,
   Users,
@@ -35,6 +36,7 @@ import {
   getCreditScoreLabel,
   normalizeCreditAnalysis,
   type CreditAnalysisRecord,
+  type CreditConsultingStep,
 } from "@/lib/credit-intelligence";
 
 export const Route = createFileRoute("/_app/credit-intelligence")({
@@ -100,6 +102,10 @@ function impactClass(value: string) {
   if (value === "alto") return "bg-warning/15 text-warning";
   if (value === "medio") return "bg-info/15 text-info";
   return "bg-success/15 text-success";
+}
+
+function asList(value?: string[]) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
 function CreditIntelligence() {
@@ -225,7 +231,7 @@ function CreditIntelligence() {
       setSelectedId(analysis.id);
       toast.success(
         payload.provider === "openai"
-          ? "Análise gerada com IA."
+          ? "Consultoria gerada com IA."
           : "Análise gerada pelo motor interno. Configure a OpenAI para análise profunda.",
       );
     } catch (error) {
@@ -257,11 +263,20 @@ function CreditIntelligence() {
     );
   };
 
+  const consultingSteps = selectedAnalysis
+    ? [
+        selectedAnalysis.diagnosis.immediatePlan,
+        selectedAnalysis.diagnosis.plan30Days,
+        selectedAnalysis.diagnosis.plan60Days,
+        selectedAnalysis.diagnosis.plan90Days,
+      ].filter(Boolean)
+    : [];
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="VA Credit Intelligence"
-        subtitle="Análise inteligente de crédito, score, rating bancário e plano de ação"
+        subtitle="Consultoria inteligente de crédito, score, rating bancário e plano de ação"
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -274,9 +289,9 @@ function CreditIntelligence() {
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.35fr]">
         <Card className="border-border/60 bg-card/70 p-5">
           <div className="mb-5">
-            <h2 className="font-display text-lg font-semibold">Nova análise</h2>
+            <h2 className="font-display text-lg font-semibold">Nova análise consultiva</h2>
             <p className="text-sm text-muted-foreground">
-              Vincule ao cliente, anexe relatórios e gere o diagnóstico.
+              Vincule ao cliente, anexe relatórios e gere uma estratégia prática de aprovação.
             </p>
           </div>
 
@@ -345,7 +360,7 @@ function CreditIntelligence() {
               <Label>Observações internas</Label>
               <Textarea
                 value={form.notes}
-                placeholder="Contexto comercial, banco desejado, renda informada, urgência, restrições conhecidas..."
+                placeholder="Banco desejado, renda informada, urgência, restrições conhecidas, entrada disponível, parcela máxima..."
                 onChange={(event) => updateForm("notes", event.target.value)}
               />
             </div>
@@ -377,7 +392,7 @@ function CreditIntelligence() {
 
             <Button type="submit" className="w-full gradient-primary text-primary-foreground" disabled={loading}>
               <BrainCircuit className="mr-2 h-4 w-4" />
-              {loading ? "Analisando..." : "Gerar diagnóstico"}
+              {loading ? "Analisando..." : "Gerar consultoria"}
             </Button>
           </form>
         </Card>
@@ -470,13 +485,22 @@ function CreditIntelligence() {
             </div>
 
             <div className="mt-5 rounded-xl border border-border/60 bg-background/40 p-4">
-              <h3 className="font-medium">Diagnóstico executivo</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-medium">Diagnóstico consultivo</h3>
+                <Badge variant="outline">Confiança: {selectedAnalysis.diagnosis.confidenceLevel || "baixa"}</Badge>
+              </div>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 {selectedAnalysis.diagnosis.summary}
               </p>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">
                 {selectedAnalysis.diagnosis.customerProfile}
               </p>
+              {selectedAnalysis.diagnosis.probabilityRationale && (
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  <span className="font-medium text-foreground">Probabilidade:</span>{" "}
+                  {selectedAnalysis.diagnosis.probabilityRationale}
+                </p>
+              )}
               <p className="mt-3 text-sm font-medium">
                 Prazo estimado: {selectedAnalysis.diagnosis.estimatedTimeToGoal}
               </p>
@@ -510,7 +534,7 @@ function CreditIntelligence() {
           </Card>
 
           <Card className="border-border/60 bg-card/70 p-5">
-            <h2 className="font-display text-lg font-semibold">Impedimentos e plano de ação</h2>
+            <h2 className="font-display text-lg font-semibold">Impedimentos e prioridades</h2>
             <div className="mt-4 space-y-3">
               {selectedAnalysis.diagnosis.issues.map((issue, index) => (
                 <div key={`${issue.title}-${index}`} className="rounded-xl border border-border/60 bg-background/40 p-4">
@@ -526,8 +550,57 @@ function CreditIntelligence() {
                 <p className="text-sm text-muted-foreground">Nenhum impedimento crítico identificado.</p>
               )}
             </div>
+          </Card>
 
-            <div className="mt-5 space-y-3">
+          <Card className="border-border/60 bg-card/70 p-5 xl:col-span-2">
+            <div className="mb-4 flex items-center gap-2">
+              <RouteIcon className="h-5 w-5 text-primary" />
+              <h2 className="font-display text-lg font-semibold">Roteiro de consultoria</h2>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-4">
+              {consultingSteps.map((step, index) => (
+                <ConsultingStepCard key={`${step?.title}-${index}`} step={step as CreditConsultingStep} />
+              ))}
+              {!consultingSteps.length && (
+                <p className="text-sm text-muted-foreground">Gere uma nova análise para receber o roteiro completo.</p>
+              )}
+            </div>
+          </Card>
+
+          <Card className="border-border/60 bg-card/70 p-5">
+            <h2 className="font-display text-lg font-semibold">Estratégia bancária</h2>
+            <div className="mt-4 space-y-3">
+              {selectedAnalysis.diagnosis.bankStrategies?.map((strategy, index) => (
+                <div key={`${strategy.bank}-${index}`} className="rounded-xl border border-border/60 bg-background/40 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-medium">{strategy.bank}</h3>
+                    <Badge variant="outline">Aderência: {strategy.fit}</Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{strategy.reason}</p>
+                  <p className="mt-2 text-sm">
+                    <span className="font-medium">Primeiro movimento:</span> {strategy.firstMove}
+                  </p>
+                </div>
+              ))}
+              {!selectedAnalysis.diagnosis.bankStrategies?.length && (
+                <p className="text-sm text-muted-foreground">Nenhuma estratégia bancária disponível.</p>
+              )}
+            </div>
+          </Card>
+
+          <Card className="border-border/60 bg-card/70 p-5">
+            <h2 className="font-display text-lg font-semibold">Checklist do consultor</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <ListPanel title="Dados faltantes" items={asList(selectedAnalysis.diagnosis.missingData)} />
+              <ListPanel title="Documentos necessários" items={asList(selectedAnalysis.diagnosis.requiredDocuments)} />
+              <ListPanel title="Não fazer agora" items={asList(selectedAnalysis.diagnosis.dontDo)} />
+              <ListPanel title="Notas da consultoria" items={asList(selectedAnalysis.diagnosis.consultantNotes)} />
+            </div>
+          </Card>
+
+          <Card className="border-border/60 bg-card/70 p-5 xl:col-span-2">
+            <h2 className="font-display text-lg font-semibold">Ações práticas</h2>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
               {selectedAnalysis.diagnosis.actions.map((action, index) => (
                 <div key={`${action.action}-${index}`} className="rounded-xl border border-border/60 bg-background/40 p-4">
                   <div className="flex flex-wrap items-center gap-2">
@@ -622,6 +695,45 @@ function InfoLine({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
       <p className="text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-1 font-medium">{value}</p>
+    </div>
+  );
+}
+
+function ConsultingStepCard({ step }: { step: CreditConsultingStep }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-background/40 p-4">
+      <h3 className="font-medium">{step.title}</h3>
+      <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+        {step.actions.map((action, index) => (
+          <li key={`${action}-${index}`} className="flex gap-2">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+            <span>{action}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Resultado esperado:</span> {step.expectedResult}
+      </p>
+    </div>
+  );
+}
+
+function ListPanel({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-background/40 p-4">
+      <h3 className="font-medium">{title}</h3>
+      {items.length ? (
+        <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+          {items.map((item, index) => (
+            <li key={`${item}-${index}`} className="flex gap-2">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm text-muted-foreground">Sem itens informados.</p>
+      )}
     </div>
   );
 }
