@@ -666,6 +666,14 @@ Sua função NÃO é apenas resumir o relatório. O relatório já mostra proble
 6. Ser prático, específico e conservador. Não prometa aprovação.
 7. Se faltar dado, liste o dado faltante e reduza a confiança da probabilidade.
 8. Priorize ações que uma consultoria de crédito realmente executaria: atualização cadastral, redução de consultas, regularização de restrições, relacionamento bancário, movimentação, saldo médio, documentação, escolha de banco e timing de nova tentativa.
+9. Inclua estratégias avançadas e pouco óbvias quando fizerem sentido, como seguro de vida, plano de proteção, plano de saúde, previdência privada, consórcio, Open Finance, portabilidade de salário, débito automático, pacote de relacionamento, cartão garantido, crédito com garantia e contas recorrentes pagas em dia.
+
+Regras para estratégias avançadas:
+- Não afirme que seguro, plano de saúde ou produto bancário aumenta diretamente o score público por si só.
+- Explique como impacto indireto: relacionamento bancário, histórico de pagamentos, perfil de estabilidade, capacidade percebida, dados de Open Finance, consistência cadastral e análise interna do banco.
+- Nunca recomende contratar produto inútil ou caro só para "subir score". Recomende somente quando couber no orçamento, fizer sentido para o cliente e puder ser mantido em dia.
+- Diferencie impacto direto no score e impacto na análise interna do banco.
+- Seja específico sobre como aplicar, por quanto tempo acompanhar e qual cuidado tomar.
 
 Cliente vinculado no CRM:
 ${JSON.stringify(getClientSummary(payload.client), null, 2)}
@@ -748,6 +756,17 @@ Retorne somente um JSON válido com este formato:
         "fit": "baixo|medio|alto",
         "reason": "string",
         "firstMove": "string"
+      }
+    ],
+    "advancedStrategies": [
+      {
+        "title": "string",
+        "category": "Produto bancario|Protecao|Relacionamento|Cadastro positivo|Movimentacao|Garantia",
+        "directScoreImpact": "baixo|medio|alto|incerto",
+        "bankAnalysisImpact": "baixo|medio|alto|incerto",
+        "whenItHelps": "string",
+        "howToApply": "string",
+        "caution": "string"
       }
     ],
     "issues": [
@@ -934,6 +953,44 @@ function buildFallbackCreditAnalysis(payload: CreditAnalysisRequest) {
           firstMove: "Identificar onde o cliente já movimenta renda e há maior histórico.",
         },
       ],
+      advancedStrategies: [
+        {
+          title: "Proteção financeira vinculada ao relacionamento bancário",
+          category: "Protecao",
+          directScoreImpact: "incerto",
+          bankAnalysisImpact: "medio",
+          whenItHelps:
+            "Pode ajudar indiretamente quando o cliente já usa o banco, consegue manter o pagamento em dia e o produto faz sentido para o orçamento.",
+          howToApply:
+            "Avaliar seguro de vida, proteção financeira ou plano compatível somente se houver utilidade real; pagar por débito automático e manter histórico sem atrasos por pelo menos 60 a 90 dias.",
+          caution:
+            "Não contratar produto caro apenas para tentar aumentar score. O efeito direto no score público não é garantido.",
+        },
+        {
+          title: "Contas recorrentes e débito automático",
+          category: "Cadastro positivo",
+          directScoreImpact: "baixo",
+          bankAnalysisImpact: "medio",
+          whenItHelps:
+            "Ajuda a demonstrar rotina financeira, previsibilidade e pagamentos em dia quando os dados aparecem no cadastro positivo ou no Open Finance.",
+          howToApply:
+            "Concentrar contas fixas essenciais em uma conta principal, ativar débito automático quando fizer sentido e evitar atrasos por pelo menos 3 ciclos.",
+          caution:
+            "Não adianta concentrar despesas se a conta ficar sem saldo ou gerar atrasos. Priorize regularidade.",
+        },
+        {
+          title: "Open Finance, salário e movimentação concentrada",
+          category: "Movimentacao",
+          directScoreImpact: "baixo",
+          bankAnalysisImpact: "alto",
+          whenItHelps:
+            "É mais forte para análise interna de bancos, especialmente quando renda, entradas, saldo médio e histórico ficam claros.",
+          howToApply:
+            "Concentrar recebimentos no banco-alvo, autorizar Open Finance quando houver bom histórico e manter saldo médio compatível com a parcela pretendida.",
+          caution:
+            "Não compartilhar Open Finance antes de organizar extratos se houver muitas devoluções, atrasos ou movimentação inconsistente.",
+        },
+      ],
       issues: [
         {
           title: "Dados de crédito incompletos",
@@ -1014,6 +1071,10 @@ function normalizeCreditAnalysisResponse(payload: CreditAnalysisRequest, analysi
       bankStrategies: normalizeRecordArray(
         diagnosis.bankStrategies,
         fallback.diagnosis.bankStrategies,
+      ),
+      advancedStrategies: normalizeRecordArray(
+        diagnosis.advancedStrategies,
+        fallback.diagnosis.advancedStrategies,
       ),
       confidenceLevel: ["baixa", "media", "alta"].includes(String(diagnosis.confidenceLevel))
         ? diagnosis.confidenceLevel

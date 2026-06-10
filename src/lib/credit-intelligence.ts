@@ -27,6 +27,22 @@ export type CreditBankStrategy = {
   firstMove: string;
 };
 
+export type CreditAdvancedStrategy = {
+  title: string;
+  category:
+    | "Produto bancario"
+    | "Protecao"
+    | "Relacionamento"
+    | "Cadastro positivo"
+    | "Movimentacao"
+    | "Garantia";
+  directScoreImpact: "baixo" | "medio" | "alto" | "incerto";
+  bankAnalysisImpact: "baixo" | "medio" | "alto" | "incerto";
+  whenItHelps: string;
+  howToApply: string;
+  caution: string;
+};
+
 export type CreditAnalysisRecord = {
   id: string;
   clientId?: string;
@@ -73,6 +89,7 @@ export type CreditAnalysisRecord = {
     plan60Days?: CreditConsultingStep;
     plan90Days?: CreditConsultingStep;
     bankStrategies?: CreditBankStrategy[];
+    advancedStrategies?: CreditAdvancedStrategy[];
     requiredDocuments?: string[];
     dontDo?: string[];
     consultantNotes?: string[];
@@ -111,6 +128,7 @@ export const emptyCreditAnalysis: CreditAnalysisRecord = {
     dontDo: [],
     consultantNotes: [],
     bankStrategies: [],
+    advancedStrategies: [],
     issues: [],
     actions: [],
   },
@@ -152,6 +170,9 @@ export function normalizeCreditAnalysis(value: unknown): CreditAnalysisRecord {
         : [],
       bankStrategies: Array.isArray(record.diagnosis?.bankStrategies)
         ? record.diagnosis.bankStrategies
+        : [],
+      advancedStrategies: Array.isArray(record.diagnosis?.advancedStrategies)
+        ? record.diagnosis.advancedStrategies
         : [],
       issues: Array.isArray(record.diagnosis?.issues) ? record.diagnosis.issues : [],
       actions: Array.isArray(record.diagnosis?.actions) ? record.diagnosis.actions : [],

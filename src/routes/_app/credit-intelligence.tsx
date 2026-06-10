@@ -589,6 +589,47 @@ function CreditIntelligence() {
           </Card>
 
           <Card className="border-border/60 bg-card/70 p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-display text-lg font-semibold">Estratégias avançadas</h2>
+                <p className="text-sm text-muted-foreground">
+                  Sinais indiretos que podem fortalecer relacionamento e análise interna quando fizerem sentido.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {selectedAnalysis.diagnosis.advancedStrategies?.map((strategy, index) => (
+                <div
+                  key={`${strategy.title}-${index}`}
+                  className="rounded-xl border border-border/60 bg-background/40 p-4"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-medium">{strategy.title}</h3>
+                    <Badge variant="outline">{strategy.category}</Badge>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    <InfoLine label="Impacto no score" value={strategy.directScoreImpact} />
+                    <InfoLine label="Impacto bancário" value={strategy.bankAnalysisImpact} />
+                  </div>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">Quando ajuda:</span> {strategy.whenItHelps}
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">Como aplicar:</span> {strategy.howToApply}
+                  </p>
+                  <p className="mt-2 text-sm text-warning">
+                    <span className="font-medium">Cuidado:</span> {strategy.caution}
+                  </p>
+                </div>
+              ))}
+              {!selectedAnalysis.diagnosis.advancedStrategies?.length && (
+                <p className="text-sm text-muted-foreground">Nenhuma estratégia avançada disponível.</p>
+              )}
+            </div>
+          </Card>
+
+          <Card className="border-border/60 bg-card/70 p-5">
             <h2 className="font-display text-lg font-semibold">Checklist do consultor</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <ListPanel title="Dados faltantes" items={asList(selectedAnalysis.diagnosis.missingData)} />
