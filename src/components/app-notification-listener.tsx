@@ -12,6 +12,7 @@ import {
   getNotificationPermission,
   requestAppNotificationPermission,
   showAppNotification,
+  subscribeDeviceToPush,
 } from "@/lib/app-notifications";
 
 type StoredSale = {
@@ -155,7 +156,12 @@ export function AppNotificationListener() {
           onClick: async () => {
             const permission = await requestAppNotificationPermission();
             if (permission === "granted") {
-              toast.success("Notificações ativadas.");
+              const subscription = await subscribeDeviceToPush();
+              toast.success(
+                subscription.ok
+                  ? "Notificações ativadas neste aparelho."
+                  : "Permissão ativada. Abra o app instalado no celular para concluir o push.",
+              );
             } else if (permission === "denied") {
               toast.error("Notificações bloqueadas pelo navegador.");
             } else if (permission === "unsupported") {
@@ -165,6 +171,12 @@ export function AppNotificationListener() {
         },
       });
     };
+
+    if (getNotificationPermission() === "granted") {
+      void subscribeDeviceToPush().catch((error) => {
+        console.warn("Could not register push subscription", error);
+      });
+    }
 
     const checkNotificationEvents = async () => {
       const now = Date.now();

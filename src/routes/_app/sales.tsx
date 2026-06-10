@@ -118,6 +118,23 @@ const emptySaleForm = {
   installments: "1",
 };
 
+function sendSalePushNotification(sale: Sale) {
+  return fetch("/api/push/notify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      id: `sale-${sale.id}`,
+      type: "sale",
+      title: "Nova venda registrada",
+      body: `${sale.client} - ${sale.service} (${formatBRL(sale.value)}) por ${sale.seller}.`,
+      tag: `sale-${sale.id}`,
+      url: "/sales",
+    }),
+  }).catch((error) => {
+    console.warn("Could not send sale push notification", error);
+  });
+}
+
 function Sales() {
   const [sales, setSales] = usePersistentState<Sale[]>("va-manager:sales", initialSales);
   const [clients] = usePersistentState<Client[]>("va-manager:clients", initialClients);
@@ -372,6 +389,7 @@ function Sales() {
     const value = parseCurrencyInput(form.value);
     const method = form.paymentMethod as PaymentMethod;
     const installments = Number(form.installments) || 1;
+    const isEditing = Boolean(form.id);
     const status =
       method === "avista" ? "pago" : method === "prazo_pix" ? "pago parcialmente" : "pendente";
     const schedule = createReceivables({
@@ -407,6 +425,9 @@ function Sales() {
 
     closeSaleDialog();
     toast.success(form.id ? "Venda atualizada." : "Venda registrada.");
+    if (!isEditing) {
+      void sendSalePushNotification(sale);
+    }
   };
 
   const updateSaleStatus = (id: string, status: string) => {

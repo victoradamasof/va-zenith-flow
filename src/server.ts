@@ -14,6 +14,9 @@ type KvNamespace = {
 
 type CloudEnv = {
   VA_MANAGER_DATA?: KvNamespace;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
 };
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
@@ -21,6 +24,34 @@ const cloudDataKey = "va-manager:primary-state";
 const signingLinkPrefix = "va-manager:signing-link:";
 const usersDataKey = "va-manager:users";
 const signedContractsDataKey = "va-manager:signed-contracts";
+const notificationEventsDataKey = "va-manager:notification-events";
+const pushSubscriptionsDataKey = "va-manager:push-subscriptions";
+const defaultVapidPublicKey =
+  "BIhtr_sTP-63VxWZtX-faVbGNawjzZfZCuXICEU9ksAd-W-SDp799CJmOpjJU6Y91Ym6nNLqpz2CqhVGX2SbJjE";
+const defaultVapidPrivateKey = "yvtjhKnLweyCoVEDW8k1L6F1R4ziPqyXVRU8tWUEvJ0";
+const defaultVapidSubject = "mailto:victorexvendas@gmail.com";
+
+type StoredPushSubscription = {
+  endpoint?: string;
+  expirationTime?: number | null;
+  keys?: {
+    p256dh?: string;
+    auth?: string;
+  };
+  userAgent?: string;
+  updatedAt?: string;
+};
+
+type PushNotificationPayload = {
+  id?: string;
+  type?: "sale" | "contract" | "bank" | "system";
+  title?: string;
+  body?: string;
+  tag?: string;
+  url?: string;
+  createdAt?: string;
+  expiresAt?: string;
+};
 
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
@@ -194,6 +225,283 @@ async function writeCloudPayload(kv: KvNamespace, data: Record<string, unknown>)
   return payload;
 }
 
+function getVapidPublicKey(env: unknown) {
+  return (env as CloudEnv).VAPID_PUBLIC_KEY || defaultVapidPublicKey;
+}
+
+function getVapidPrivateKey(env: unknown) {
+  return (env as CloudEnv).VAPID_PRIVATE_KEY || defaultVapidPrivateKey;
+}
+
+function getVapidSubject(env: unknown) {
+  return (env as CloudEnv).VAPID_SUBJECT || defaultVapidSubject;
+}
+
+function base64UrlToBytes(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+}
+
+function bytesToBase64Url(bytes: Uint8Array) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlJson(payload: unknown) {
+  return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+}
+
+function getPushAudience(endpoint: string) {
+  const url = new URL(endpoint);
+  return `${url.protocol}//${url.host}`;
+}
+
+async function createVapidJwt(audience: string, env: unknown) {
+  const publicKeyBytes = base64UrlToBytes(getVapidPublicKey(env));
+  const privateKey = getVapidPrivateKey(env);
+  const x = bytesToBase64Url(publicKeyBytes.slice(1, 33));
+  const y = bytesToBase64Url(publicKeyBytes.slice(33, 65));
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    {
+      kty: "EC",
+      crv: "P-256",
+      x,
+      y,
+      d: privateKey,
+      ext: true,
+    },
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
+  const header = base64UrlJson({ typ: "JWT", alg: "ES256" });
+  const payload = base64UrlJson({
+    aud: audience,
+    exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+    sub: getVapidSubject(env),
+  });
+  const unsignedToken = `${header}.${payload}`;
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    key,
+    new TextEncoder().encode(unsignedToken),
+  );
+
+  return `${unsignedToken}.${bytesToBase64Url(new Uint8Array(signature))}`;
+}
+
+function isPushSubscription(value: unknown): value is StoredPushSubscription {
+  if (!value || typeof value !== "object") return false;
+  const endpoint = (value as StoredPushSubscription).endpoint;
+  return typeof endpoint === "string" && endpoint.startsWith("https://");
+}
+
+async function getPushSubscriptions(kv: KvNamespace) {
+  try {
+    const stored = await kv.get(pushSubscriptionsDataKey);
+    const parsed = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed.filter(isPushSubscription) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function savePushSubscriptions(kv: KvNamespace, subscriptions: StoredPushSubscription[]) {
+  await kv.put(pushSubscriptionsDataKey, JSON.stringify(subscriptions.slice(0, 250)));
+}
+
+function mergePushSubscription(
+  subscriptions: StoredPushSubscription[],
+  subscription: StoredPushSubscription,
+  userAgent: string | null,
+) {
+  const endpoint = subscription.endpoint;
+  if (!endpoint) return subscriptions;
+
+  const next = subscriptions.filter((item) => item.endpoint !== endpoint);
+  next.unshift({
+    ...subscription,
+    userAgent: userAgent ?? subscription.userAgent,
+    updatedAt: new Date().toISOString(),
+  });
+  return next;
+}
+
+async function sendPushPing(subscription: StoredPushSubscription, env: unknown) {
+  if (!subscription.endpoint) return { ok: false, remove: true };
+
+  const audience = getPushAudience(subscription.endpoint);
+  const jwt = await createVapidJwt(audience, env);
+  const response = await fetch(subscription.endpoint, {
+    method: "POST",
+    headers: {
+      TTL: "86400",
+      Urgency: "normal",
+      Authorization: `vapid t=${jwt}, k=${getVapidPublicKey(env)}`,
+    },
+  });
+
+  return {
+    ok: response.ok,
+    remove: response.status === 404 || response.status === 410,
+  };
+}
+
+function normalizeNotificationPayload(payload: PushNotificationPayload): Required<PushNotificationPayload> {
+  const now = new Date();
+  const id =
+    payload.id ||
+    `${payload.type || "system"}-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  return {
+    id,
+    type: payload.type || "system",
+    title: payload.title || "VA Consultoria Manager",
+    body: payload.body || "Novo evento sincronizado no sistema.",
+    tag: payload.tag || id,
+    url: payload.url || "/dashboard",
+    createdAt: payload.createdAt || now.toISOString(),
+    expiresAt: payload.expiresAt || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
+async function appendNotificationEvent(kv: KvNamespace, payload: PushNotificationPayload) {
+  const event = normalizeNotificationPayload(payload);
+  const stored = await readCloudPayload(kv);
+  const currentEvents = Array.isArray(stored?.data?.[notificationEventsDataKey])
+    ? (stored?.data?.[notificationEventsDataKey] as unknown[])
+    : [];
+  const now = Date.now();
+  const activeEvents = currentEvents.filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    const expiresAt = (item as PushNotificationPayload).expiresAt;
+    return !expiresAt || Date.parse(expiresAt) > now;
+  });
+
+  await writeCloudPayload(kv, {
+    ...(stored?.data ?? {}),
+    [notificationEventsDataKey]: [
+      event,
+      ...activeEvents.filter((item) => (item as PushNotificationPayload).id !== event.id),
+    ].slice(0, 100),
+  });
+
+  return event;
+}
+
+async function broadcastPushNotification(
+  kv: KvNamespace,
+  env: unknown,
+  payload: PushNotificationPayload,
+) {
+  const event = await appendNotificationEvent(kv, payload);
+  const subscriptions = await getPushSubscriptions(kv);
+  if (!subscriptions.length) return { event, sent: 0, failed: 0 };
+
+  const results = await Promise.allSettled(
+    subscriptions.map(async (subscription) => ({
+      subscription,
+      result: await sendPushPing(subscription, env),
+    })),
+  );
+  let sent = 0;
+  let failed = 0;
+  const activeSubscriptions: StoredPushSubscription[] = [];
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      failed += 1;
+      continue;
+    }
+
+    if (result.value.result.ok) sent += 1;
+    else failed += 1;
+
+    if (!result.value.result.remove) {
+      activeSubscriptions.push(result.value.subscription);
+    }
+  }
+
+  await savePushSubscriptions(kv, activeSubscriptions);
+  return { event, sent, failed };
+}
+
+function getStringField(record: unknown, field: string) {
+  if (!record || typeof record !== "object") return "";
+  const value = (record as Record<string, unknown>)[field];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getEvidenceSignedAt(record: unknown, field: "clientEvidence" | "sellerEvidence") {
+  if (!record || typeof record !== "object") return "";
+  const evidence = (record as Record<string, unknown>)[field];
+  if (!evidence || typeof evidence !== "object") return "";
+  const signedAt = (evidence as Record<string, unknown>).signedAt;
+  return typeof signedAt === "string" ? signedAt : "";
+}
+
+function getContractNotificationLabel(record: unknown) {
+  const clientName =
+    getStringField(record, "clientName") ||
+    getStringField(record, "contractorName") ||
+    "Cliente";
+  const service = getStringField(record, "service") || "contrato";
+  return `${clientName} - ${service}`;
+}
+
+async function notifySignedContractChanges(
+  kv: KvNamespace,
+  env: unknown,
+  beforeRecord: unknown,
+  afterRecord: unknown,
+) {
+  const recordId = getSignedContractId(afterRecord);
+  const beforeClientSignedAt = getEvidenceSignedAt(beforeRecord, "clientEvidence");
+  const beforeSellerSignedAt = getEvidenceSignedAt(beforeRecord, "sellerEvidence");
+  const afterClientSignedAt = getEvidenceSignedAt(afterRecord, "clientEvidence");
+  const afterSellerSignedAt = getEvidenceSignedAt(afterRecord, "sellerEvidence");
+  const label = getContractNotificationLabel(afterRecord);
+  const seller = getStringField(afterRecord, "seller");
+
+  if (afterClientSignedAt && afterClientSignedAt !== beforeClientSignedAt) {
+    await broadcastPushNotification(kv, env, {
+      id: `contract-client-${recordId}-${afterClientSignedAt}`,
+      type: "contract",
+      title: "Contrato assinado pelo contratante",
+      body: `${label} foi assinado pelo cliente.${seller ? ` Responsável: ${seller}.` : ""}`,
+      tag: `contract-client-${recordId}`,
+      url: "/contracts",
+    });
+  }
+
+  if (afterSellerSignedAt && afterSellerSignedAt !== beforeSellerSignedAt) {
+    await broadcastPushNotification(kv, env, {
+      id: `contract-seller-${recordId}-${afterSellerSignedAt}`,
+      type: "contract",
+      title: "Contrato assinado pelo vendedor",
+      body: `${seller || "Vendedor"} assinou ${label}.`,
+      tag: `contract-seller-${recordId}`,
+      url: "/contracts",
+    });
+  }
+
+  const wasCompleted = Boolean(beforeClientSignedAt && beforeSellerSignedAt);
+  const isCompleted = Boolean(afterClientSignedAt && afterSellerSignedAt);
+  if (!wasCompleted && isCompleted) {
+    await broadcastPushNotification(kv, env, {
+      id: `contract-completed-${recordId}-${afterClientSignedAt}-${afterSellerSignedAt}`,
+      type: "contract",
+      title: "Contrato finalizado",
+      body: `${label} foi assinado pelas duas partes.`,
+      tag: `contract-completed-${recordId}`,
+      url: "/contracts",
+    });
+  }
+}
+
 async function handleCloudDataRequest(request: Request, env: unknown): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== "/api/cloud-data") return null;
@@ -240,6 +548,72 @@ async function handleCloudDataRequest(request: Request, env: unknown): Promise<R
 
     const payload = await writeCloudPayload(kv, nextData);
     return jsonResponse(payload);
+  }
+
+  return jsonResponse({ error: "Method not allowed." }, { status: 405 });
+}
+
+async function handlePushRequest(request: Request, env: unknown): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/api/push")) return null;
+
+  const kv = (env as CloudEnv).VA_MANAGER_DATA;
+  if (!kv) {
+    return jsonResponse({ error: "Cloud storage is not configured." }, { status: 503 });
+  }
+
+  if (url.pathname === "/api/push/public-key" && request.method === "GET") {
+    return jsonResponse({ publicKey: getVapidPublicKey(env) });
+  }
+
+  if (url.pathname === "/api/push/events" && request.method === "GET") {
+    const stored = await readCloudPayload(kv);
+    const now = Date.now();
+    const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 20, 1), 50);
+    const events = Array.isArray(stored?.data?.[notificationEventsDataKey])
+      ? (stored?.data?.[notificationEventsDataKey] as PushNotificationPayload[])
+      : [];
+
+    return jsonResponse({
+      updatedAt: stored?.updatedAt ?? null,
+      events: events
+        .filter((event) => event?.id && (!event.expiresAt || Date.parse(event.expiresAt) > now))
+        .slice(0, limit),
+    });
+  }
+
+  if (url.pathname === "/api/push/subscribe" && request.method === "POST") {
+    let body: { subscription?: unknown };
+    try {
+      body = (await request.json()) as { subscription?: unknown };
+    } catch {
+      return jsonResponse({ error: "Invalid JSON body." }, { status: 400 });
+    }
+
+    if (!isPushSubscription(body?.subscription)) {
+      return jsonResponse({ error: "Invalid push subscription." }, { status: 400 });
+    }
+
+    const subscriptions = await getPushSubscriptions(kv);
+    const nextSubscriptions = mergePushSubscription(
+      subscriptions,
+      body.subscription,
+      request.headers.get("user-agent"),
+    );
+    await savePushSubscriptions(kv, nextSubscriptions);
+    return jsonResponse({ ok: true, subscriptions: nextSubscriptions.length });
+  }
+
+  if (url.pathname === "/api/push/notify" && request.method === "POST") {
+    let body: PushNotificationPayload;
+    try {
+      body = (await request.json()) as PushNotificationPayload;
+    } catch {
+      return jsonResponse({ error: "Invalid JSON body." }, { status: 400 });
+    }
+
+    const result = await broadcastPushNotification(kv, env, body);
+    return jsonResponse({ ok: true, ...result });
   }
 
   return jsonResponse({ error: "Method not allowed." }, { status: 405 });
@@ -316,8 +690,12 @@ async function handleSignedContractsRequest(request: Request, env: unknown): Pro
     }
 
     const existingPayload = await readCloudPayload(kv);
+    const existingRecords = Array.isArray(existingPayload?.data?.[signedContractsDataKey])
+      ? existingPayload?.data?.[signedContractsDataKey]
+      : [];
+    const previousRecord = existingRecords.find((item) => getSignedContractId(item) === recordId);
     const nextRecords = mergeSignedContractsPreservingEvidence(
-      existingPayload?.data?.[signedContractsDataKey],
+      existingRecords,
       [body.record],
     );
     const savedRecord = nextRecords.find((item) => getSignedContractId(item) === recordId) ?? body.record;
@@ -325,6 +703,7 @@ async function handleSignedContractsRequest(request: Request, env: unknown): Pro
       ...(existingPayload?.data ?? {}),
       [signedContractsDataKey]: nextRecords,
     });
+    await notifySignedContractChanges(kv, env, previousRecord, savedRecord);
 
     return jsonResponse({
       updatedAt: payload.updatedAt,
@@ -406,6 +785,9 @@ function slugifyToken(value: string) {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const pushResponse = await handlePushRequest(request, env);
+      if (pushResponse) return pushResponse;
+
       const usersResponse = await handleUsersRequest(request, env);
       if (usersResponse) return usersResponse;
 
