@@ -17,6 +17,8 @@ type CloudEnv = {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_CREDIT_MODEL?: string;
 };
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
@@ -51,6 +53,23 @@ type PushNotificationPayload = {
   url?: string;
   createdAt?: string;
   expiresAt?: string;
+};
+
+type CreditAnalysisFile = {
+  name?: string;
+  type?: string;
+  size?: number;
+  dataUrl?: string;
+  text?: string;
+};
+
+type CreditAnalysisRequest = {
+  client?: unknown;
+  objective?: string;
+  requestedAmount?: number;
+  operationType?: string;
+  notes?: string;
+  files?: CreditAnalysisFile[];
 };
 
 async function getServerEntry(): Promise<ServerEntry> {
@@ -619,6 +638,329 @@ async function handlePushRequest(request: Request, env: unknown): Promise<Respon
   return jsonResponse({ error: "Method not allowed." }, { status: 405 });
 }
 
+function getClientSummary(client: unknown) {
+  if (!client || typeof client !== "object") return {};
+  const record = client as Record<string, unknown>;
+  return {
+    id: typeof record.id === "string" ? record.id : "",
+    name: typeof record.name === "string" ? record.name : "",
+    doc: typeof record.doc === "string" ? record.doc : "",
+    phone: typeof record.phone === "string" ? record.phone : "",
+    email: typeof record.email === "string" ? record.email : "",
+    address: typeof record.address === "string" ? record.address : "",
+    service: typeof record.service === "string" ? record.service : "",
+    status: typeof record.status === "string" ? record.status : "",
+    total: typeof record.total === "number" ? record.total : 0,
+  };
+}
+
+function getCreditPrompt(payload: CreditAnalysisRequest) {
+  return `Você é um especialista sênior em análise de crédito, score, rating bancário, relacionamento bancário e concessão de crédito no mercado brasileiro.
+
+Analise os arquivos enviados e gere um diagnóstico prático para a VA Consultoria. Seja conservador: quando um dado não estiver claro, marque como null ou explique que não foi identificado.
+
+Cliente vinculado no CRM:
+${JSON.stringify(getClientSummary(payload.client), null, 2)}
+
+Objetivo declarado: ${payload.objective || "Não informado"}
+Valor desejado: ${payload.requestedAmount || 0}
+Tipo de operação: ${payload.operationType || "Não informado"}
+Observações internas: ${payload.notes || "Nenhuma"}
+
+Retorne somente um JSON válido com este formato:
+{
+  "extracted": {
+    "name": "string",
+    "cpf": "string",
+    "birthDate": "string",
+    "address": "string",
+    "phones": ["string"],
+    "score": 0,
+    "rating": "string",
+    "debts": ["string"],
+    "protests": ["string"],
+    "lawsuits": ["string"],
+    "recentInquiries": 0,
+    "banks": ["string"],
+    "averageBalance": 0,
+    "estimatedIncome": 0,
+    "incomeCommitment": 0
+  },
+  "diagnosis": {
+    "summary": "string",
+    "customerProfile": "string",
+    "approvalProbabilityNow": 0,
+    "approvalProbabilityAfterPlan": 0,
+    "estimatedTimeToGoal": "string",
+    "mainBlockers": ["string"],
+    "opportunities": ["string"],
+    "issues": [
+      {
+        "title": "string",
+        "impact": "baixo|medio|alto|critico",
+        "priority": "baixa|media|alta|urgente",
+        "recommendation": "string"
+      }
+    ],
+    "actions": [
+      {
+        "area": "Cadastro|Bancario|Financeiro|Dividas|Relacionamento|Documentos",
+        "action": "string",
+        "deadline": "string",
+        "expectedGain": "string"
+      }
+    ]
+  }
+}`;
+}
+
+function parseOpenAIText(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const record = payload as Record<string, unknown>;
+  if (typeof record.output_text === "string") return record.output_text;
+
+  const output = Array.isArray(record.output) ? record.output : [];
+  const chunks: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const content = Array.isArray((item as Record<string, unknown>).content)
+      ? ((item as Record<string, unknown>).content as unknown[])
+      : [];
+    for (const contentItem of content) {
+      if (!contentItem || typeof contentItem !== "object") continue;
+      const text = (contentItem as Record<string, unknown>).text;
+      if (typeof text === "string") chunks.push(text);
+    }
+  }
+  return chunks.join("\n").trim();
+}
+
+function parseMaybeJson(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const match = trimmed.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function normalizePercent(value: unknown, fallback: number) {
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+function buildFallbackCreditAnalysis(payload: CreditAnalysisRequest) {
+  const client = getClientSummary(payload.client) as Record<string, unknown>;
+  const requestedAmount = Number(payload.requestedAmount) || 0;
+  const currentProbability = requestedAmount > 100000 ? 32 : requestedAmount > 30000 ? 44 : 58;
+
+  return {
+    extracted: {
+      name: client.name || "",
+      cpf: client.doc || "",
+      birthDate: "",
+      address: client.address || "",
+      phones: client.phone ? [client.phone] : [],
+      score: null,
+      rating: "Não identificado",
+      debts: [],
+      protests: [],
+      lawsuits: [],
+      recentInquiries: null,
+      banks: [],
+      averageBalance: null,
+      estimatedIncome: null,
+      incomeCommitment: null,
+    },
+    diagnosis: {
+      summary:
+        "Análise gerada pelo motor interno. Configure a chave OPENAI_API_KEY para leitura inteligente dos arquivos e diagnóstico mais profundo.",
+      customerProfile:
+        "Perfil ainda incompleto. É necessário anexar relatório Serasa/SPC/Registrato ou extrato bancário para validar score, renda, consultas e impeditivos.",
+      approvalProbabilityNow: currentProbability,
+      approvalProbabilityAfterPlan: Math.min(92, currentProbability + 28),
+      estimatedTimeToGoal: "30 a 90 dias, conforme atualização cadastral, movimentação e regularização dos apontamentos.",
+      mainBlockers: [
+        "Documentação de crédito ainda não analisada por IA.",
+        "Score, rating e comprometimento de renda não foram identificados automaticamente.",
+      ],
+      opportunities: [
+        "Vincular relatórios do cliente ao CRM para criar histórico de evolução.",
+        "Padronizar plano de relacionamento bancário e atualização cadastral.",
+      ],
+      issues: [
+        {
+          title: "Dados de crédito incompletos",
+          impact: "alto",
+          priority: "alta",
+          recommendation:
+            "Anexar relatório completo de birô de crédito, Registrato e extratos recentes para diagnóstico preciso.",
+        },
+        {
+          title: "Histórico bancário não validado",
+          impact: "medio",
+          priority: "media",
+          recommendation:
+            "Mapear bancos utilizados, entradas mensais, saldo médio e recorrência de movimentação.",
+        },
+      ],
+      actions: [
+        {
+          area: "Documentos",
+          action: "Coletar Serasa/SPC/Boa Vista/Quod, Registrato e extratos dos últimos 90 dias.",
+          deadline: "Imediato",
+          expectedGain: "Permite identificar impeditivos reais e reduzir retrabalho na consultoria.",
+        },
+        {
+          area: "Cadastro",
+          action: "Conferir CPF/CNPJ, endereço, telefone, e-mail e profissão/renda declarada nos birôs.",
+          deadline: "Até 7 dias",
+          expectedGain: "Reduz divergências cadastrais e melhora consistência para análise bancária.",
+        },
+      ],
+    },
+  };
+}
+
+function normalizeCreditAnalysisResponse(payload: CreditAnalysisRequest, analysis: unknown) {
+  const fallback = buildFallbackCreditAnalysis(payload);
+  if (!analysis || typeof analysis !== "object") return fallback;
+  const record = analysis as Record<string, unknown>;
+  const diagnosis = (record.diagnosis && typeof record.diagnosis === "object"
+    ? record.diagnosis
+    : {}) as Record<string, unknown>;
+
+  return {
+    extracted: {
+      ...fallback.extracted,
+      ...((record.extracted && typeof record.extracted === "object" ? record.extracted : {}) as Record<
+        string,
+        unknown
+      >),
+    },
+    diagnosis: {
+      ...fallback.diagnosis,
+      ...diagnosis,
+      approvalProbabilityNow: normalizePercent(
+        diagnosis.approvalProbabilityNow,
+        fallback.diagnosis.approvalProbabilityNow,
+      ),
+      approvalProbabilityAfterPlan: normalizePercent(
+        diagnosis.approvalProbabilityAfterPlan,
+        fallback.diagnosis.approvalProbabilityAfterPlan,
+      ),
+      mainBlockers: Array.isArray(diagnosis.mainBlockers)
+        ? diagnosis.mainBlockers
+        : fallback.diagnosis.mainBlockers,
+      opportunities: Array.isArray(diagnosis.opportunities)
+        ? diagnosis.opportunities
+        : fallback.diagnosis.opportunities,
+      issues: Array.isArray(diagnosis.issues) ? diagnosis.issues : fallback.diagnosis.issues,
+      actions: Array.isArray(diagnosis.actions) ? diagnosis.actions : fallback.diagnosis.actions,
+    },
+  };
+}
+
+async function runOpenAICreditAnalysis(payload: CreditAnalysisRequest, env: unknown) {
+  const apiKey = (env as CloudEnv).OPENAI_API_KEY;
+  if (!apiKey) {
+    return { provider: "rules", ...buildFallbackCreditAnalysis(payload) };
+  }
+
+  const files = Array.isArray(payload.files) ? payload.files.slice(0, 6) : [];
+  const content: Array<Record<string, unknown>> = [{ type: "input_text", text: getCreditPrompt(payload) }];
+
+  for (const file of files) {
+    if (file.text?.trim()) {
+      content.push({
+        type: "input_text",
+        text: `Texto extraído de ${file.name || "arquivo"}:\n${file.text.slice(0, 50000)}`,
+      });
+      continue;
+    }
+
+    if (!file.dataUrl) continue;
+    if (file.type?.startsWith("image/")) {
+      content.push({ type: "input_image", image_url: file.dataUrl });
+    } else if (file.type === "application/pdf") {
+      content.push({
+        type: "input_file",
+        filename: file.name || "relatorio.pdf",
+        file_data: file.dataUrl,
+      });
+    }
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: (env as CloudEnv).OPENAI_CREDIT_MODEL || "gpt-4.1-mini",
+      input: [
+        {
+          role: "user",
+          content,
+        },
+      ],
+      temperature: 0.2,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`OpenAI credit analysis failed: ${response.status} ${errorText}`);
+    return { provider: "rules", ...buildFallbackCreditAnalysis(payload) };
+  }
+
+  const openAiPayload = await response.json();
+  const text = parseOpenAIText(openAiPayload);
+  const parsed = parseMaybeJson(text);
+  return {
+    provider: "openai",
+    ...normalizeCreditAnalysisResponse(payload, parsed),
+  };
+}
+
+async function handleCreditIntelligenceRequest(request: Request, env: unknown): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (url.pathname !== "/api/credit-intelligence/analyze") return null;
+
+  if (request.method !== "POST") {
+    return jsonResponse({ error: "Method not allowed." }, { status: 405 });
+  }
+
+  let payload: CreditAnalysisRequest;
+  try {
+    payload = (await request.json()) as CreditAnalysisRequest;
+  } catch {
+    return jsonResponse({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const files = Array.isArray(payload.files) ? payload.files : [];
+  const totalSize = files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
+  if (files.length > 6 || totalSize > 18 * 1024 * 1024) {
+    return jsonResponse(
+      { error: "Envie no máximo 6 arquivos e até 18 MB por análise." },
+      { status: 413 },
+    );
+  }
+
+  const analysis = await runOpenAICreditAnalysis(payload, env);
+  return jsonResponse(analysis);
+}
+
 async function handleUsersRequest(request: Request, env: unknown): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== "/api/users") return null;
@@ -785,6 +1127,9 @@ function slugifyToken(value: string) {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const creditIntelligenceResponse = await handleCreditIntelligenceRequest(request, env);
+      if (creditIntelligenceResponse) return creditIntelligenceResponse;
+
       const pushResponse = await handlePushRequest(request, env);
       if (pushResponse) return pushResponse;
 

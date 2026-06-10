@@ -14,6 +14,7 @@ export const appRoutes = [
   "/sales",
   "/clients",
   "/contracts",
+  "/credit-intelligence",
   "/ranking",
   "/commissions",
   "/services",
@@ -29,7 +30,16 @@ const allRoutes = [...appRoutes];
 
 const routesByRole: Record<string, AppRoutePath[]> = {
   Administrador: allRoutes,
-  Comercial: ["/sales", "/clients", "/contracts", "/ranking", "/commissions", "/services", "/goals"],
+  Comercial: [
+    "/sales",
+    "/clients",
+    "/contracts",
+    "/credit-intelligence",
+    "/ranking",
+    "/commissions",
+    "/services",
+    "/goals",
+  ],
   Financeiro: [
     "/dashboard",
     "/calendar",
@@ -42,7 +52,7 @@ const routesByRole: Record<string, AppRoutePath[]> = {
     "/commissions",
     "/reports",
   ],
-  Operacional: ["/calendar", "/clients", "/contracts", "/services", "/reports"],
+  Operacional: ["/calendar", "/clients", "/contracts", "/credit-intelligence", "/services", "/reports"],
   "Somente leitura": ["/dashboard", "/calendar", "/insights", "/alerts", "/reports"],
 };
 

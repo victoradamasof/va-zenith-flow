@@ -25,6 +25,7 @@ import { Route as AppGoalsRouteImport } from './routes/_app/goals'
 import { Route as AppForecastRouteImport } from './routes/_app/forecast'
 import { Route as AppFinancialRouteImport } from './routes/_app/financial'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppCreditIntelligenceRouteImport } from './routes/_app/credit-intelligence'
 import { Route as AppContractsRouteImport } from './routes/_app/contracts'
 import { Route as AppCommissionsRouteImport } from './routes/_app/commissions'
 import { Route as AppClientsRouteImport } from './routes/_app/clients'
@@ -112,6 +113,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCreditIntelligenceRoute = AppCreditIntelligenceRouteImport.update({
+  id: '/credit-intelligence',
+  path: '/credit-intelligence',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppContractsRoute = AppContractsRouteImport.update({
   id: '/contracts',
   path: '/contracts',
@@ -158,6 +164,7 @@ export interface FileRoutesByFullPath {
   '/clients': typeof AppClientsRoute
   '/commissions': typeof AppCommissionsRoute
   '/contracts': typeof AppContractsRoute
+  '/credit-intelligence': typeof AppCreditIntelligenceRoute
   '/dashboard': typeof AppDashboardRoute
   '/financial': typeof AppFinancialRoute
   '/forecast': typeof AppForecastRoute
@@ -182,6 +189,7 @@ export interface FileRoutesByTo {
   '/clients': typeof AppClientsRoute
   '/commissions': typeof AppCommissionsRoute
   '/contracts': typeof AppContractsRoute
+  '/credit-intelligence': typeof AppCreditIntelligenceRoute
   '/dashboard': typeof AppDashboardRoute
   '/financial': typeof AppFinancialRoute
   '/forecast': typeof AppForecastRoute
@@ -208,6 +216,7 @@ export interface FileRoutesById {
   '/_app/clients': typeof AppClientsRoute
   '/_app/commissions': typeof AppCommissionsRoute
   '/_app/contracts': typeof AppContractsRoute
+  '/_app/credit-intelligence': typeof AppCreditIntelligenceRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/financial': typeof AppFinancialRoute
   '/_app/forecast': typeof AppForecastRoute
@@ -234,6 +243,7 @@ export interface FileRouteTypes {
     | '/clients'
     | '/commissions'
     | '/contracts'
+    | '/credit-intelligence'
     | '/dashboard'
     | '/financial'
     | '/forecast'
@@ -258,6 +268,7 @@ export interface FileRouteTypes {
     | '/clients'
     | '/commissions'
     | '/contracts'
+    | '/credit-intelligence'
     | '/dashboard'
     | '/financial'
     | '/forecast'
@@ -283,6 +294,7 @@ export interface FileRouteTypes {
     | '/_app/clients'
     | '/_app/commissions'
     | '/_app/contracts'
+    | '/_app/credit-intelligence'
     | '/_app/dashboard'
     | '/_app/financial'
     | '/_app/forecast'
@@ -419,6 +431,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/credit-intelligence': {
+      id: '/_app/credit-intelligence'
+      path: '/credit-intelligence'
+      fullPath: '/credit-intelligence'
+      preLoaderRoute: typeof AppCreditIntelligenceRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/contracts': {
       id: '/_app/contracts'
       path: '/contracts'
@@ -479,6 +498,7 @@ interface AppRouteChildren {
   AppClientsRoute: typeof AppClientsRoute
   AppCommissionsRoute: typeof AppCommissionsRoute
   AppContractsRoute: typeof AppContractsRoute
+  AppCreditIntelligenceRoute: typeof AppCreditIntelligenceRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppFinancialRoute: typeof AppFinancialRoute
   AppForecastRoute: typeof AppForecastRoute
@@ -501,6 +521,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppClientsRoute: AppClientsRoute,
   AppCommissionsRoute: AppCommissionsRoute,
   AppContractsRoute: AppContractsRoute,
+  AppCreditIntelligenceRoute: AppCreditIntelligenceRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppFinancialRoute: AppFinancialRoute,
   AppForecastRoute: AppForecastRoute,
