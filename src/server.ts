@@ -25,6 +25,7 @@ let serverEntryPromise: Promise<ServerEntry> | undefined;
 const cloudDataKey = "va-manager:primary-state";
 const signingLinkPrefix = "va-manager:signing-link:";
 const usersDataKey = "va-manager:users";
+const salesDataKey = "va-manager:sales";
 const signedContractsDataKey = "va-manager:signed-contracts";
 const notificationEventsDataKey = "va-manager:notification-events";
 const pushSubscriptionsDataKey = "va-manager:push-subscriptions";
@@ -272,6 +273,25 @@ function base64UrlJson(payload: unknown) {
   return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
 }
 
+function concatBytes(...parts: Uint8Array[]) {
+  const totalLength = parts.reduce((sum, part) => sum + part.byteLength, 0);
+  const bytes = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const part of parts) {
+    bytes.set(part, offset);
+    offset += part.byteLength;
+  }
+
+  return bytes;
+}
+
+function uint32Bytes(value: number) {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, value, false);
+  return bytes;
+}
+
 function getPushAudience(endpoint: string) {
   const url = new URL(endpoint);
   return `${url.protocol}//${url.host}`;
@@ -312,6 +332,80 @@ async function createVapidJwt(audience: string, env: unknown) {
   return `${unsignedToken}.${bytesToBase64Url(new Uint8Array(signature))}`;
 }
 
+async function hkdfExtract(salt: Uint8Array, ikm: Uint8Array) {
+  const key = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+  ]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, ikm));
+}
+
+async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number) {
+  const key = await crypto.subtle.importKey("raw", prk, { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+  ]);
+  const block = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, concatBytes(info, new Uint8Array([1]))),
+  );
+  return block.slice(0, length);
+}
+
+async function encryptPushPayload(subscription: StoredPushSubscription, payload: PushNotificationPayload) {
+  const receiverPublicKey = subscription.keys?.p256dh;
+  const authSecret = subscription.keys?.auth;
+  if (!receiverPublicKey || !authSecret) return null;
+
+  const receiverPublicBytes = base64UrlToBytes(receiverPublicKey);
+  const authSecretBytes = base64UrlToBytes(authSecret);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const senderKeyPair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, [
+    "deriveBits",
+  ]);
+  const senderPublicBytes = new Uint8Array(
+    await crypto.subtle.exportKey("raw", senderKeyPair.publicKey),
+  );
+  const receiverPublicCryptoKey = await crypto.subtle.importKey(
+    "raw",
+    receiverPublicBytes,
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    [],
+  );
+  const sharedSecret = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: "ECDH", public: receiverPublicCryptoKey },
+      senderKeyPair.privateKey,
+      256,
+    ),
+  );
+  const info = concatBytes(
+    new TextEncoder().encode("WebPush: info\0"),
+    receiverPublicBytes,
+    senderPublicBytes,
+  );
+  const ikm = await hkdfExpand(await hkdfExtract(authSecretBytes, sharedSecret), info, 32);
+  const contentPrk = await hkdfExtract(salt, ikm);
+  const cek = await hkdfExpand(
+    contentPrk,
+    new TextEncoder().encode("Content-Encoding: aes128gcm\0"),
+    16,
+  );
+  const nonce = await hkdfExpand(contentPrk, new TextEncoder().encode("Content-Encoding: nonce\0"), 12);
+  const plainText = concatBytes(
+    new TextEncoder().encode(JSON.stringify(payload)),
+    new Uint8Array([2]),
+  );
+  const cryptoKey = await crypto.subtle.importKey("raw", cek, { name: "AES-GCM" }, false, [
+    "encrypt",
+  ]);
+  const encryptedPayload = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, cryptoKey, plainText),
+  );
+  const recordSize = 4096;
+  const header = concatBytes(salt, uint32Bytes(recordSize), new Uint8Array([senderPublicBytes.length]));
+
+  return concatBytes(header, senderPublicBytes, encryptedPayload);
+}
+
 function isPushSubscription(value: unknown): value is StoredPushSubscription {
   if (!value || typeof value !== "object") return false;
   const endpoint = (value as StoredPushSubscription).endpoint;
@@ -349,18 +443,32 @@ function mergePushSubscription(
   return next;
 }
 
-async function sendPushPing(subscription: StoredPushSubscription, env: unknown) {
+async function sendPushNotification(
+  subscription: StoredPushSubscription,
+  env: unknown,
+  payload: PushNotificationPayload,
+) {
   if (!subscription.endpoint) return { ok: false, remove: true };
 
   const audience = getPushAudience(subscription.endpoint);
   const jwt = await createVapidJwt(audience, env);
+  const encryptedPayload = await encryptPushPayload(subscription, payload).catch(() => null);
+  const headers = new Headers({
+    TTL: "86400",
+    Urgency: "normal",
+    Authorization: `vapid t=${jwt}, k=${getVapidPublicKey(env)}`,
+    "Crypto-Key": `p256ecdsa=${getVapidPublicKey(env)}`,
+  });
+
+  if (encryptedPayload) {
+    headers.set("Content-Encoding", "aes128gcm");
+    headers.set("Content-Type", "application/octet-stream");
+  }
+
   const response = await fetch(subscription.endpoint, {
     method: "POST",
-    headers: {
-      TTL: "86400",
-      Urgency: "normal",
-      Authorization: `vapid t=${jwt}, k=${getVapidPublicKey(env)}`,
-    },
+    headers,
+    body: encryptedPayload,
   });
 
   return {
@@ -399,6 +507,11 @@ async function appendNotificationEvent(kv: KvNamespace, payload: PushNotificatio
     const expiresAt = (item as PushNotificationPayload).expiresAt;
     return !expiresAt || Date.parse(expiresAt) > now;
   });
+  const alreadyExists = activeEvents.some((item) => (item as PushNotificationPayload).id === event.id);
+
+  if (alreadyExists) {
+    return { event, isNew: false };
+  }
 
   await writeCloudPayload(kv, {
     ...(stored?.data ?? {}),
@@ -408,7 +521,7 @@ async function appendNotificationEvent(kv: KvNamespace, payload: PushNotificatio
     ].slice(0, 100),
   });
 
-  return event;
+  return { event, isNew: true };
 }
 
 async function broadcastPushNotification(
@@ -416,14 +529,16 @@ async function broadcastPushNotification(
   env: unknown,
   payload: PushNotificationPayload,
 ) {
-  const event = await appendNotificationEvent(kv, payload);
+  const { event, isNew } = await appendNotificationEvent(kv, payload);
+  if (!isNew) return { event, sent: 0, failed: 0, duplicate: true };
+
   const subscriptions = await getPushSubscriptions(kv);
   if (!subscriptions.length) return { event, sent: 0, failed: 0 };
 
   const results = await Promise.allSettled(
     subscriptions.map(async (subscription) => ({
       subscription,
-      result: await sendPushPing(subscription, env),
+      result: await sendPushNotification(subscription, env, event),
     })),
   );
   let sent = 0;
@@ -454,6 +569,20 @@ function getStringField(record: unknown, field: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getNumberField(record: unknown, field: string) {
+  if (!record || typeof record !== "object") return 0;
+  const value = (record as Record<string, unknown>)[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function formatServerBRL(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).format(value || 0);
+}
+
 function getEvidenceSignedAt(record: unknown, field: "clientEvidence" | "sellerEvidence") {
   if (!record || typeof record !== "object") return "";
   const evidence = (record as Record<string, unknown>)[field];
@@ -469,6 +598,40 @@ function getContractNotificationLabel(record: unknown) {
     "Cliente";
   const service = getStringField(record, "service") || "contrato";
   return `${clientName} - ${service}`;
+}
+
+function getSaleRecordId(record: unknown) {
+  return getStringField(record, "id");
+}
+
+function getSaleNotificationBody(record: unknown) {
+  const client = getStringField(record, "client") || "Cliente";
+  const service = getStringField(record, "service") || "Serviço";
+  const seller = getStringField(record, "seller");
+  const value = getNumberField(record, "value");
+  return `${client} - ${service} (${formatServerBRL(value)})${seller ? ` por ${seller}` : ""}.`;
+}
+
+async function notifySaleChanges(kv: KvNamespace, env: unknown, beforeSales: unknown, afterSales: unknown) {
+  if (!Array.isArray(beforeSales) || !Array.isArray(afterSales)) return;
+
+  const beforeIds = new Set(beforeSales.map(getSaleRecordId).filter(Boolean));
+  const newSales = afterSales.filter((sale) => {
+    const id = getSaleRecordId(sale);
+    return id && !beforeIds.has(id);
+  });
+
+  for (const sale of newSales.slice(0, 10)) {
+    const saleId = getSaleRecordId(sale);
+    await broadcastPushNotification(kv, env, {
+      id: `sale-${saleId}`,
+      type: "sale",
+      title: "Nova venda registrada",
+      body: getSaleNotificationBody(sale),
+      tag: `sale-${saleId}`,
+      url: "/sales",
+    });
+  }
 }
 
 async function notifySignedContractChanges(
@@ -566,6 +729,14 @@ async function handleCloudDataRequest(request: Request, env: unknown): Promise<R
     }
 
     const payload = await writeCloudPayload(kv, nextData);
+    if (incomingData[salesDataKey]) {
+      await notifySaleChanges(
+        kv,
+        env,
+        existingPayload?.data?.[salesDataKey],
+        nextData[salesDataKey],
+      );
+    }
     return jsonResponse(payload);
   }
 
