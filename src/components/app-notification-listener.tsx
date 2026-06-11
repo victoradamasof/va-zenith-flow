@@ -207,12 +207,6 @@ export function AppNotificationListener() {
           toast.success(title, { description: body });
         }
 
-        await showAppNotification({
-          title,
-          body,
-          tag: `event-${event.id}`,
-          url,
-        });
       }
 
       writeStringArray(seenNotificationEventsKey, eventIds);
@@ -235,12 +229,6 @@ export function AppNotificationListener() {
         const title = "Nova venda registrada";
         const body = `${sale.client || "Cliente"} - ${sale.service || "Serviço"} (${formatBRL(sale.value || 0)})`;
         toast.success(title, { description: body });
-        await showAppNotification({
-          title,
-          body: `${body}${sale.seller ? ` por ${sale.seller}` : ""}`,
-          tag: `sale-${sale.id}`,
-          url: "/sales",
-        });
       }
 
       if (newSales.length > 4) {
