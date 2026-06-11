@@ -97,6 +97,9 @@ const paymentMethodOptions: Array<{ value: PaymentMethod; label: string }> = [
 type Sale = (typeof initialSales)[number] & {
   paymentMethod?: PaymentMethod;
   installments?: number;
+  prazoPixEntryAmount?: number;
+  prazoPixPendingAmount?: number;
+  prazoPixDueDays?: number;
 };
 type Collaborator = (typeof sellers)[number] & { role?: string; photoUrl?: string };
 type Client = (typeof initialClients)[number] & {
@@ -116,6 +119,9 @@ const emptySaleForm = {
   origin: "",
   paymentMethod: "avista" as PaymentMethod,
   installments: "1",
+  prazoPixEntryAmount: "397,00",
+  prazoPixPendingAmount: "300,00",
+  prazoPixDueDays: "30",
 };
 
 function sendSalePushNotification(sale: Sale) {
@@ -228,6 +234,9 @@ function Sales() {
   const paymentMethod = form.paymentMethod as PaymentMethod;
   const installmentCount = Number(form.installments) || 1;
   const currentSaleValue = parseCurrencyInput(form.value);
+  const prazoPixEntryAmount = parseCurrencyInput(form.prazoPixEntryAmount);
+  const prazoPixPendingAmount = parseCurrencyInput(form.prazoPixPendingAmount);
+  const prazoPixDueDays = Math.max(1, Math.round(Number(form.prazoPixDueDays) || 30));
   const currentPaymentPreview = useMemo(() => {
     const schedule = createReceivables({
       sourceId: "preview",
@@ -240,6 +249,9 @@ function Sales() {
       method: paymentMethod,
       installments: installmentCount,
       saleDate: parseLocalDate(form.date),
+      prazoPixEntryAmount,
+      prazoPixPendingAmount,
+      prazoPixDueDays,
     });
     return schedule.map((item) => `${item.label}: ${formatBRL(item.amount)}`).join(" | ");
   }, [
@@ -251,6 +263,9 @@ function Sales() {
     form.service,
     installmentCount,
     paymentMethod,
+    prazoPixDueDays,
+    prazoPixEntryAmount,
+    prazoPixPendingAmount,
   ]);
 
   const serviceRanking = useMemo(() => {
@@ -292,6 +307,58 @@ function Sales() {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  const updateSaleValue = (value: string) => {
+    setForm((current) => {
+      if (current.paymentMethod !== "prazo_pix") return { ...current, value };
+      const total = parseCurrencyInput(value);
+      const entry = parseCurrencyInput(current.prazoPixEntryAmount);
+      return {
+        ...current,
+        value,
+        prazoPixPendingAmount: formatCurrencyInput(Math.max(total - entry, 0)),
+      };
+    });
+  };
+
+  const normalizeSaleValue = () => {
+    setForm((current) => {
+      const total = parseCurrencyInput(current.value);
+      if (current.paymentMethod !== "prazo_pix") {
+        return { ...current, value: formatCurrencyInput(total) };
+      }
+      const entry = parseCurrencyInput(current.prazoPixEntryAmount);
+      return {
+        ...current,
+        value: formatCurrencyInput(total),
+        prazoPixPendingAmount: formatCurrencyInput(Math.max(total - entry, 0)),
+      };
+    });
+  };
+
+  const normalizePrazoPixEntry = () => {
+    setForm((current) => {
+      const total = parseCurrencyInput(current.value);
+      const entry = parseCurrencyInput(current.prazoPixEntryAmount);
+      return {
+        ...current,
+        prazoPixEntryAmount: formatCurrencyInput(entry),
+        prazoPixPendingAmount: formatCurrencyInput(Math.max(total - entry, 0)),
+      };
+    });
+  };
+
+  const normalizePrazoPixPending = () => {
+    setForm((current) => {
+      const entry = parseCurrencyInput(current.prazoPixEntryAmount);
+      const pending = parseCurrencyInput(current.prazoPixPendingAmount);
+      return {
+        ...current,
+        prazoPixPendingAmount: formatCurrencyInput(pending),
+        value: formatCurrencyInput(entry + pending),
+      };
+    });
+  };
+
   const canManageSale = (sale: Sale | undefined) =>
     Boolean(sale && (canManageAllSales || isOwnedBySession(sale.seller, session)));
 
@@ -326,6 +393,11 @@ function Sales() {
       origin: sale.origin,
       paymentMethod: method,
       installments: String(sale.installments ?? 1),
+      prazoPixEntryAmount: formatCurrencyInput(sale.prazoPixEntryAmount ?? Math.min(397, sale.value)),
+      prazoPixPendingAmount: formatCurrencyInput(
+        sale.prazoPixPendingAmount ?? Math.max(sale.value - Math.min(397, sale.value), 0),
+      ),
+      prazoPixDueDays: String(sale.prazoPixDueDays ?? 30),
     });
     setOpen(true);
   };
@@ -337,20 +409,44 @@ function Sales() {
 
   const selectPaymentMethod = (method: string) => {
     const nextMethod = method as PaymentMethod;
-    setForm((current) => ({
-      ...current,
-      paymentMethod: nextMethod,
-      installments: nextMethod === "credito" ? current.installments : "1",
-      value: nextMethod === "prazo_pix" ? "697,00" : current.value,
-    }));
+    setForm((current) => {
+      const currentTotal = parseCurrencyInput(current.value);
+      const nextValue =
+        nextMethod === "prazo_pix" ? formatCurrencyInput(currentTotal || 697) : current.value;
+      const entry = parseCurrencyInput(current.prazoPixEntryAmount || "397,00") || 397;
+
+      return {
+        ...current,
+        paymentMethod: nextMethod,
+        installments: nextMethod === "credito" ? current.installments : "1",
+        value: nextValue,
+        prazoPixEntryAmount:
+          nextMethod === "prazo_pix"
+            ? formatCurrencyInput(entry)
+            : current.prazoPixEntryAmount,
+        prazoPixPendingAmount:
+          nextMethod === "prazo_pix"
+            ? formatCurrencyInput(Math.max(parseCurrencyInput(nextValue) - entry, 0))
+            : current.prazoPixPendingAmount,
+        prazoPixDueDays:
+          nextMethod === "prazo_pix" ? current.prazoPixDueDays || "30" : current.prazoPixDueDays,
+      };
+    });
   };
 
   const selectService = (serviceName: string) => {
     const selectedService = serviceOptions.find((service) => service.name === serviceName);
+    const nextValue = formatCurrencyInput(selectedService?.price ?? 0);
     setForm((current) => ({
       ...current,
       service: serviceName,
-      value: formatCurrencyInput(selectedService?.price ?? 0),
+      value: nextValue,
+      prazoPixPendingAmount:
+        current.paymentMethod === "prazo_pix"
+          ? formatCurrencyInput(
+              Math.max(parseCurrencyInput(nextValue) - parseCurrencyInput(current.prazoPixEntryAmount), 0),
+            )
+          : current.prazoPixPendingAmount,
     }));
   };
 
@@ -386,12 +482,23 @@ function Sales() {
       ? form.seller.trim() || collaboratorOptions[0]?.name || sellers[0].name
       : currentSellerName || session?.name || form.seller.trim();
     const origin = form.origin.trim() || leadOrigins[0];
-    const value = parseCurrencyInput(form.value);
     const method = form.paymentMethod as PaymentMethod;
     const installments = Number(form.installments) || 1;
+    const entryAmount = method === "prazo_pix" ? parseCurrencyInput(form.prazoPixEntryAmount) : 0;
+    const pendingAmount =
+      method === "prazo_pix" ? parseCurrencyInput(form.prazoPixPendingAmount) : 0;
+    const dueDays = Math.max(1, Math.round(Number(form.prazoPixDueDays) || 30));
+    const value =
+      method === "prazo_pix"
+        ? Number((entryAmount + pendingAmount).toFixed(2))
+        : parseCurrencyInput(form.value);
     const isEditing = Boolean(form.id);
     const status =
-      method === "avista" ? "pago" : method === "prazo_pix" ? "pago parcialmente" : "pendente";
+      method === "avista" || (method === "prazo_pix" && pendingAmount <= 0)
+        ? "pago"
+        : method === "prazo_pix"
+          ? "pago parcialmente"
+          : "pendente";
     const schedule = createReceivables({
       sourceId: id,
       sourceType: "sale",
@@ -403,6 +510,9 @@ function Sales() {
       method,
       installments,
       saleDate,
+      prazoPixEntryAmount: entryAmount,
+      prazoPixPendingAmount: pendingAmount,
+      prazoPixDueDays: dueDays,
     });
 
     const sale: Sale = {
@@ -416,6 +526,9 @@ function Sales() {
       status,
       paymentMethod: method,
       installments: method === "credito" ? installments : 1,
+      prazoPixEntryAmount: method === "prazo_pix" ? entryAmount : undefined,
+      prazoPixPendingAmount: method === "prazo_pix" ? pendingAmount : undefined,
+      prazoPixDueDays: method === "prazo_pix" ? dueDays : undefined,
     };
 
     setSales((current) =>
@@ -570,10 +683,8 @@ function Sales() {
                     <SaleField
                       label="Valor"
                       value={form.value}
-                      onChange={(value) => updateForm("value", value)}
-                      onBlur={() =>
-                        updateForm("value", formatCurrencyInput(parseCurrencyInput(form.value)))
-                      }
+                      onChange={updateSaleValue}
+                      onBlur={normalizeSaleValue}
                     />
                     <SaleSelectField
                       label="Vendedor"
@@ -617,6 +728,36 @@ function Sales() {
                           installmentOptions.map((option) => [option, `${option}x`]),
                         )}
                       />
+                    )}
+                    {paymentMethod === "prazo_pix" && (
+                      <>
+                        <SaleField
+                          label="Entrada Pix"
+                          value={form.prazoPixEntryAmount}
+                          onChange={(value) => updateForm("prazoPixEntryAmount", value)}
+                          onBlur={normalizePrazoPixEntry}
+                        />
+                        <SaleField
+                          label="Valor a receber"
+                          value={form.prazoPixPendingAmount}
+                          onChange={(value) => updateForm("prazoPixPendingAmount", value)}
+                          onBlur={normalizePrazoPixPending}
+                        />
+                        <SaleField
+                          label="Prazo para receber (dias)"
+                          value={form.prazoPixDueDays}
+                          onChange={(value) =>
+                            updateForm("prazoPixDueDays", value.replace(/\D/g, ""))
+                          }
+                          onBlur={() =>
+                            updateForm(
+                              "prazoPixDueDays",
+                              String(Math.max(1, Math.round(Number(form.prazoPixDueDays) || 30))),
+                            )
+                          }
+                          type="number"
+                        />
+                      </>
                     )}
                   </div>
                   <div className="mt-4 rounded-lg border border-border/60 bg-background/40 p-3 text-sm text-muted-foreground">

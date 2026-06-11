@@ -62,6 +62,9 @@ export function createReceivables({
   installments,
   saleDate = new Date(),
   sourceType,
+  prazoPixEntryAmount,
+  prazoPixPendingAmount,
+  prazoPixDueDays,
 }: {
   sourceId: string;
   sourceType?: Receivable["sourceType"];
@@ -73,12 +76,19 @@ export function createReceivables({
   method: PaymentMethod;
   installments: number;
   saleDate?: Date;
+  prazoPixEntryAmount?: number;
+  prazoPixPendingAmount?: number;
+  prazoPixDueDays?: number;
 }) {
   const safeTotal = Math.max(total, 0);
 
   if (method === "prazo_pix") {
-    const paidNow = Math.min(397, safeTotal);
-    const pending = Math.max(safeTotal - paidNow, 0);
+    const paidNow = Math.min(Math.max(prazoPixEntryAmount ?? 397, 0), safeTotal);
+    const pending = Math.max(
+      prazoPixPendingAmount ?? Number((safeTotal - paidNow).toFixed(2)),
+      0,
+    );
+    const dueDays = Math.max(1, Math.round(prazoPixDueDays ?? 30));
     return [
       {
         id: `${sourceId}-pix-entrada`,
@@ -104,10 +114,10 @@ export function createReceivables({
               service,
               seller,
               origin,
-              dueDate: toISODate(addDays(saleDate, 30)),
+              dueDate: toISODate(addDays(saleDate, dueDays)),
               amount: pending,
               method,
-              label: "Pix a prazo - 30 dias",
+              label: `Pix a prazo - ${dueDays} dias`,
               status: "previsto" as const,
             },
           ]
