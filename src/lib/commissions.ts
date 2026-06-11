@@ -35,6 +35,10 @@ type CommissionSale = {
   seller: string;
   status: string;
   value: number;
+  paymentMethod?: string;
+  commissionEntryAmount?: number;
+  commissionPendingAmount?: number;
+  commissionAmount?: number;
 };
 
 type CommissionService = {
@@ -71,6 +75,18 @@ function getServiceCommission(services: CommissionService[], serviceName: string
   const normalizedService = normalizeText(serviceName);
   const service = services.find((item) => normalizeText(item.name) === normalizedService);
   return Number(service?.commission ?? 0);
+}
+
+function getSaleCommissionAmount(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function formatCommissionTriggerAmount(value: number) {
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  });
 }
 
 function receivedAmount(receivables: Receivable[]) {
@@ -133,6 +149,38 @@ export function calculateCommissionEntries({
     const hasReceivables = saleReceivables.length > 0;
 
     if (isLimpaNomeService(sale.service)) {
+      const entryCommission = getSaleCommissionAmount(sale.commissionEntryAmount, 50);
+      const finalCommission = getSaleCommissionAmount(sale.commissionPendingAmount, 50);
+      const isCashSale = sale.paymentMethod === "avista" || (!sale.paymentMethod && sale.status === "pago");
+
+      if (isCashSale) {
+        const entryId = `${sale.id}:limpa-nome-avista`;
+        const payment = getPayment(allPayments, entryId);
+        const amount = getSaleCommissionAmount(
+          sale.commissionAmount,
+          entryCommission + finalCommission,
+        );
+
+        return [
+          {
+            id: entryId,
+            saleId: sale.id,
+            saleDate: sale.date,
+            dueDate: sale.date,
+            paidAt: payment?.paidAt,
+            seller: sale.seller,
+            client: sale.client,
+            service: sale.service,
+            saleValue: sale.value,
+            amount,
+            label: "Comissão Limpa Nome",
+            trigger: "venda" as const,
+            triggerLabel: "Liberada pela venda à vista",
+            status: payment ? "paga" : "a_pagar",
+          },
+        ];
+      }
+
       const { entryReceivable, finalReceivable } = getLimpaNomeReceivables(saleReceivables);
       const entryThreshold = Math.min(397, sale.value);
       const finalThreshold = Math.max(sale.value, entryThreshold);
@@ -160,10 +208,10 @@ export function calculateCommissionEntries({
           client: sale.client,
           service: sale.service,
           saleValue: sale.value,
-          amount: 50,
+          amount: entryCommission,
           label: "Entrada Limpa Nome",
           trigger: "entrada_limpa_nome" as const,
-          triggerLabel: "R$ 50 pela entrada paga",
+          triggerLabel: `${formatCommissionTriggerAmount(entryCommission)} pela entrada paga`,
           status: entryStatus.status,
           sourceReceivableId: entryReceivable?.id,
         },
@@ -177,10 +225,10 @@ export function calculateCommissionEntries({
           client: sale.client,
           service: sale.service,
           saleValue: sale.value,
-          amount: 50,
+          amount: finalCommission,
           label: "Entrega Limpa Nome",
           trigger: "entrega_limpa_nome" as const,
-          triggerLabel: "R$ 50 após cobrança final recebida",
+          triggerLabel: `${formatCommissionTriggerAmount(finalCommission)} após cobrança final recebida`,
           status: finalStatus.status,
           sourceReceivableId: finalReceivable?.id,
         },
@@ -189,7 +237,10 @@ export function calculateCommissionEntries({
 
     const entryId = `${sale.id}:service-commission`;
     const payment = getPayment(allPayments, entryId);
-    const amount = getServiceCommission(services, sale.service);
+    const amount = getSaleCommissionAmount(
+      sale.commissionAmount ?? sale.commissionEntryAmount,
+      getServiceCommission(services, sale.service),
+    );
 
     return [
       {
