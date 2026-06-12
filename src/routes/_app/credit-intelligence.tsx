@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   BrainCircuit,
   CheckCircle2,
+  Download,
   FileSearch,
   LineChart,
   Route as RouteIcon,
@@ -106,6 +107,262 @@ function impactClass(value: string) {
 
 function asList(value?: string[]) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function renderPdfList(items?: string[]) {
+  const validItems = asList(items);
+  if (!validItems.length) return "<p class=\"muted\">Sem itens informados.</p>";
+  return `<ul>${validItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
+  const steps = [
+    analysis.diagnosis.immediatePlan,
+    analysis.diagnosis.plan30Days,
+    analysis.diagnosis.plan60Days,
+    analysis.diagnosis.plan90Days,
+  ].filter(Boolean) as CreditConsultingStep[];
+  const score = analysis.extracted.score ? String(analysis.extracted.score) : "Não identificado";
+  const rating = analysis.extracted.rating || "Não identificado";
+  const income = analysis.extracted.estimatedIncome
+    ? formatBRL(analysis.extracted.estimatedIncome)
+    : "Não identificada";
+  const balance = analysis.extracted.averageBalance
+    ? formatBRL(analysis.extracted.averageBalance)
+    : "Não identificado";
+  const createdAt = formatDateTime(analysis.createdAt);
+
+  const html = `<!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>Diagnóstico de Crédito - ${escapeHtml(analysis.clientName)}</title>
+        <style>
+          @page { size: A4; margin: 12mm; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            background: #050505;
+            color: #f8f8f8;
+            font-family: Inter, Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .page {
+            min-height: 273mm;
+            padding: 26px;
+            page-break-after: always;
+            background:
+              radial-gradient(circle at top right, rgba(255, 111, 24, 0.28), transparent 34%),
+              linear-gradient(145deg, #100602 0%, #050505 48%, #120804 100%);
+            border: 1px solid rgba(255, 111, 24, 0.22);
+          }
+          .page:last-child { page-break-after: auto; }
+          .brand { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+          .brand img { width: 148px; height: auto; border-radius: 16px; border: 1px solid rgba(255,111,24,.35); }
+          .tag {
+            display: inline-flex;
+            border: 1px solid rgba(255,111,24,.45);
+            border-radius: 999px;
+            color: #ff7a24;
+            padding: 7px 12px;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+          }
+          h1 { margin: 70px 0 14px; max-width: 760px; font-size: 48px; line-height: 1.02; letter-spacing: -1.2px; }
+          h2 { margin: 0 0 14px; font-size: 25px; }
+          h3 { margin: 0 0 8px; font-size: 16px; }
+          p { margin: 0; line-height: 1.6; color: #cfc7c1; }
+          .lead { max-width: 760px; font-size: 18px; color: #e7ded7; }
+          .muted { color: #998f88; }
+          .accent { color: #ff7a24; }
+          .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+          .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+          .card {
+            border: 1px solid rgba(255,255,255,.09);
+            border-radius: 18px;
+            background: rgba(255,255,255,.045);
+            padding: 18px;
+            box-shadow: 0 16px 50px rgba(0,0,0,.28);
+          }
+          .kpi { min-height: 118px; }
+          .kpi .label { color: #a79d96; font-size: 11px; text-transform: uppercase; letter-spacing: .12em; }
+          .kpi .value { margin-top: 10px; color: #fff; font-size: 34px; font-weight: 900; }
+          .bar { height: 10px; margin-top: 14px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; }
+          .bar span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #ff6f18, #ffb36b); }
+          ul { margin: 10px 0 0; padding-left: 18px; color: #d7cec8; line-height: 1.55; }
+          li { margin: 6px 0; }
+          .section { margin-top: 24px; }
+          .issue { border-left: 4px solid #ff7a24; }
+          .footer {
+            position: fixed;
+            bottom: 10mm;
+            left: 12mm;
+            right: 12mm;
+            display: flex;
+            justify-content: space-between;
+            color: #7d746e;
+            font-size: 11px;
+          }
+          @media print {
+            body { background: #050505; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <section class="page">
+          <div class="brand">
+            <img src="/va-consultoria-logo-cropped.png" alt="VA Consultoria" />
+            <span class="tag">VA Credit Intelligence</span>
+          </div>
+          <h1>Diagnóstico consultivo de crédito</h1>
+          <p class="lead">${escapeHtml(analysis.clientName)} recebeu uma análise estratégica para ${escapeHtml(
+            analysis.operationType,
+          )}, com plano prático para melhorar score, relacionamento bancário e probabilidade de aprovação.</p>
+          <div class="section grid-3">
+            <div class="card kpi"><div class="label">Valor desejado</div><div class="value">${formatBRL(
+              analysis.requestedAmount,
+            )}</div></div>
+            <div class="card kpi"><div class="label">Chance atual</div><div class="value">${analysis.diagnosis.approvalProbabilityNow}%</div><div class="bar"><span style="width:${analysis.diagnosis.approvalProbabilityNow}%"></span></div></div>
+            <div class="card kpi"><div class="label">Após o plano</div><div class="value">${analysis.diagnosis.approvalProbabilityAfterPlan}%</div><div class="bar"><span style="width:${analysis.diagnosis.approvalProbabilityAfterPlan}%"></span></div></div>
+          </div>
+          <div class="section card">
+            <h2>Resumo executivo</h2>
+            <p>${escapeHtml(analysis.diagnosis.summary)}</p>
+            <p class="section"><strong class="accent">Prazo estimado:</strong> ${escapeHtml(analysis.diagnosis.estimatedTimeToGoal)}</p>
+          </div>
+          <div class="footer"><span>VA Consultoria</span><span>${escapeHtml(createdAt)}</span></div>
+        </section>
+
+        <section class="page">
+          <div class="brand"><span class="tag">Perfil e diagnóstico</span><img src="/va-consultoria-logo-cropped.png" alt="VA Consultoria" /></div>
+          <div class="section grid">
+            <div class="card kpi"><div class="label">Score</div><div class="value">${escapeHtml(score)}</div></div>
+            <div class="card kpi"><div class="label">Rating</div><div class="value">${escapeHtml(rating)}</div></div>
+            <div class="card kpi"><div class="label">Renda estimada</div><div class="value">${escapeHtml(income)}</div></div>
+            <div class="card kpi"><div class="label">Saldo médio</div><div class="value">${escapeHtml(balance)}</div></div>
+          </div>
+          <div class="section card">
+            <h2>Perfil do cliente</h2>
+            <p>${escapeHtml(analysis.diagnosis.customerProfile)}</p>
+          </div>
+          <div class="section card">
+            <h2>Racional da probabilidade</h2>
+            <p>${escapeHtml(analysis.diagnosis.probabilityRationale || "Não informado.")}</p>
+          </div>
+          <div class="section grid">
+            <div class="card"><h3>Principais bloqueios</h3>${renderPdfList(analysis.diagnosis.mainBlockers)}</div>
+            <div class="card"><h3>Oportunidades</h3>${renderPdfList(analysis.diagnosis.opportunities)}</div>
+          </div>
+          <div class="footer"><span>Diagnóstico gerado pela VA Consultoria</span><span>${escapeHtml(analysis.clientName)}</span></div>
+        </section>
+
+        <section class="page">
+          <div class="brand"><span class="tag">Impedimentos</span><img src="/va-consultoria-logo-cropped.png" alt="VA Consultoria" /></div>
+          <div class="section">
+            ${analysis.diagnosis.issues
+              .map(
+                (issue) => `<div class="card issue section">
+                  <h3>${escapeHtml(issue.title)} <span class="accent">(${escapeHtml(issue.impact)} / ${escapeHtml(issue.priority)})</span></h3>
+                  <p>${escapeHtml(issue.recommendation)}</p>
+                </div>`,
+              )
+              .join("") || "<p class=\"muted\">Nenhum impedimento crítico identificado.</p>"}
+          </div>
+          <div class="footer"><span>VA Credit Intelligence</span><span>Prioridades de aprovação</span></div>
+        </section>
+
+        <section class="page">
+          <div class="brand"><span class="tag">Plano de ação</span><img src="/va-consultoria-logo-cropped.png" alt="VA Consultoria" /></div>
+          <div class="section grid">
+            ${steps
+              .map(
+                (step) => `<div class="card">
+                  <h3>${escapeHtml(step.title)}</h3>
+                  ${renderPdfList(step.actions)}
+                  <p class="section"><strong class="accent">Resultado esperado:</strong> ${escapeHtml(step.expectedResult)}</p>
+                </div>`,
+              )
+              .join("")}
+          </div>
+          <div class="section card">
+            <h2>Ações práticas</h2>
+            ${analysis.diagnosis.actions
+              .map(
+                (action) => `<div class="section">
+                  <h3>${escapeHtml(action.area)} · ${escapeHtml(action.deadline)}</h3>
+                  <p>${escapeHtml(action.action)}</p>
+                  <p class="accent">${escapeHtml(action.expectedGain)}</p>
+                </div>`,
+              )
+              .join("")}
+          </div>
+          <div class="footer"><span>Roteiro consultivo</span><span>${escapeHtml(analysis.operationType)}</span></div>
+        </section>
+
+        <section class="page">
+          <div class="brand"><span class="tag">Estratégia avançada</span><img src="/va-consultoria-logo-cropped.png" alt="VA Consultoria" /></div>
+          <div class="section grid">
+            <div class="card">
+              <h2>Estratégia bancária</h2>
+              ${analysis.diagnosis.bankStrategies
+                ?.map(
+                  (strategy) => `<div class="section">
+                    <h3>${escapeHtml(strategy.bank)} · aderência ${escapeHtml(strategy.fit)}</h3>
+                    <p>${escapeHtml(strategy.reason)}</p>
+                    <p><strong class="accent">Primeiro movimento:</strong> ${escapeHtml(strategy.firstMove)}</p>
+                  </div>`,
+                )
+                .join("") || "<p class=\"muted\">Sem estratégia bancária informada.</p>"}
+            </div>
+            <div class="card">
+              <h2>Checklist do consultor</h2>
+              <h3>Documentos necessários</h3>${renderPdfList(analysis.diagnosis.requiredDocuments)}
+              <h3 class="section">Não fazer agora</h3>${renderPdfList(analysis.diagnosis.dontDo)}
+              <h3 class="section">Notas da consultoria</h3>${renderPdfList(analysis.diagnosis.consultantNotes)}
+            </div>
+          </div>
+          <div class="section card">
+            <h2>Diferenciais e sinais indiretos</h2>
+            ${analysis.diagnosis.advancedStrategies
+              ?.map(
+                (strategy) => `<div class="section">
+                  <h3>${escapeHtml(strategy.title)} · ${escapeHtml(strategy.category)}</h3>
+                  <p><strong class="accent">Quando ajuda:</strong> ${escapeHtml(strategy.whenItHelps)}</p>
+                  <p><strong class="accent">Como aplicar:</strong> ${escapeHtml(strategy.howToApply)}</p>
+                  <p class="muted">Cuidado: ${escapeHtml(strategy.caution)}</p>
+                </div>`,
+              )
+              .join("") || "<p class=\"muted\">Sem estratégias avançadas informadas.</p>"}
+          </div>
+          <div class="footer"><span>Documento consultivo confidencial</span><span>VA Consultoria</span></div>
+        </section>
+        <script>
+          window.addEventListener("load", () => setTimeout(() => window.print(), 300));
+        </script>
+      </body>
+    </html>`;
+
+  const printWindow = window.open("", "_blank", "width=1100,height=900");
+  if (!printWindow) {
+    toast.error("Permita pop-ups para gerar o PDF.");
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
 }
 
 function CreditIntelligence() {
@@ -466,9 +723,20 @@ function CreditIntelligence() {
                   {selectedAnalysis.operationType} - {formatBRL(selectedAnalysis.requestedAmount)}
                 </p>
               </div>
-              <Badge className="bg-primary/15 text-primary">
-                {getCreditScoreLabel(selectedAnalysis.diagnosis.approvalProbabilityAfterPlan)}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-primary/15 text-primary">
+                  {getCreditScoreLabel(selectedAnalysis.diagnosis.approvalProbabilityAfterPlan)}
+                </Badge>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => renderCreditAnalysisPdf(selectedAnalysis)}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Baixar PDF
+                </Button>
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">

@@ -21,7 +21,7 @@ export type CommissionEntry = {
   saleValue: number;
   amount: number;
   label: string;
-  trigger: "venda" | "entrada_limpa_nome" | "entrega_limpa_nome";
+  trigger: "venda" | "entrada_limpa_nome" | "entrega_limpa_nome" | "entrada_servico" | "recebimento_servico";
   triggerLabel: string;
   status: CommissionStatus;
   sourceReceivableId?: string;
@@ -113,6 +113,14 @@ function getLimpaNomeReceivables(receivables: Receivable[]) {
     sorted[sorted.length - 1];
 
   return { entryReceivable, finalReceivable };
+}
+
+function getSplitReceivables(receivables: Receivable[]) {
+  const sorted = sortReceivablesByDueDate(receivables);
+  return {
+    entryReceivable: sorted[0],
+    finalReceivable: sorted.length > 1 ? sorted[sorted.length - 1] : undefined,
+  };
 }
 
 function getEntryStatus({
@@ -235,11 +243,73 @@ export function calculateCommissionEntries({
       ];
     }
 
+    const serviceCommission = getServiceCommission(services, sale.service);
+    const isSplitServiceSale =
+      sale.paymentMethod === "prazo_pix" || sale.paymentMethod === "credito";
+
+    if (isSplitServiceSale) {
+      const { entryReceivable, finalReceivable } = getSplitReceivables(saleReceivables);
+      const entryCommission = getSaleCommissionAmount(sale.commissionEntryAmount, serviceCommission);
+      const finalCommission = getSaleCommissionAmount(sale.commissionPendingAmount, 0);
+      const entryEarned = hasReceivables
+        ? Boolean(entryReceivable && entryReceivable.status === "recebido")
+        : sale.status === "pago" || sale.status === "pago parcialmente";
+      const finalEarned = hasReceivables
+        ? saleReceivables.length > 0 &&
+          saleReceivables.every((receivable) => receivable.status === "recebido")
+        : sale.status === "pago";
+      const entryId = `${sale.id}:service-entry-commission`;
+      const finalId = `${sale.id}:service-pending-commission`;
+      const entryStatus = getEntryStatus({ entryId, earned: entryEarned, payments: allPayments });
+      const finalStatus = getEntryStatus({ entryId: finalId, earned: finalEarned, payments: allPayments });
+
+      return [
+        {
+          id: entryId,
+          saleId: sale.id,
+          saleDate: sale.date,
+          dueDate: entryReceivable?.dueDate ?? sale.date,
+          paidAt: entryStatus.paidAt,
+          seller: sale.seller,
+          client: sale.client,
+          service: sale.service,
+          saleValue: sale.value,
+          amount: entryCommission,
+          label: "Comissão de entrada",
+          trigger: "entrada_servico" as const,
+          triggerLabel: `${formatCommissionTriggerAmount(entryCommission)} pela entrada recebida`,
+          status: entryStatus.status,
+          sourceReceivableId: entryReceivable?.id,
+        },
+        ...(finalCommission > 0
+          ? [
+              {
+                id: finalId,
+                saleId: sale.id,
+                saleDate: sale.date,
+                dueDate: finalReceivable?.dueDate ?? sale.date,
+                paidAt: finalStatus.paidAt,
+                seller: sale.seller,
+                client: sale.client,
+                service: sale.service,
+                saleValue: sale.value,
+                amount: finalCommission,
+                label: "Comissão prevista",
+                trigger: "recebimento_servico" as const,
+                triggerLabel: `${formatCommissionTriggerAmount(finalCommission)} após recebimento final`,
+                status: finalStatus.status,
+                sourceReceivableId: finalReceivable?.id,
+              },
+            ]
+          : []),
+      ];
+    }
+
     const entryId = `${sale.id}:service-commission`;
     const payment = getPayment(allPayments, entryId);
     const amount = getSaleCommissionAmount(
       sale.commissionAmount ?? sale.commissionEntryAmount,
-      getServiceCommission(services, sale.service),
+      serviceCommission,
     );
 
     return [

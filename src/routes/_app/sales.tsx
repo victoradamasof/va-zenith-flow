@@ -95,6 +95,16 @@ const paymentMethodOptions: Array<{ value: PaymentMethod; label: string }> = [
   { value: "prazo_pix", label: "Prazo Pix" },
   { value: "credito", label: "Cartão de crédito" },
 ];
+
+function splitCommissionByEntry(totalCommission: number, saleTotal: number, entryAmount: number) {
+  if (totalCommission <= 0) return { entry: 0, pending: 0 };
+  if (saleTotal <= 0 || entryAmount <= 0) return { entry: totalCommission, pending: 0 };
+  const entry = Math.min(totalCommission, Math.round((totalCommission * entryAmount / saleTotal) * 100) / 100);
+  return {
+    entry,
+    pending: Math.max(Number((totalCommission - entry).toFixed(2)), 0),
+  };
+}
 type Sale = (typeof initialSales)[number] & {
   paymentMethod?: PaymentMethod;
   installments?: number;
@@ -225,7 +235,6 @@ function Sales() {
     () => serviceOptions.find((service) => service.name === form.service),
     [form.service, serviceOptions],
   );
-  const isLimpaNomeSale = isLimpaNomeService(form.service);
   const paymentMethod = form.paymentMethod as PaymentMethod;
   const installmentCount = Number(form.installments) || 1;
   const currentSaleValue = parseCurrencyInput(form.value);
@@ -412,6 +421,20 @@ function Sales() {
         : sale.status === "pago parcialmente"
           ? "prazo_pix"
           : "credito");
+    const serviceDefaultCommission =
+      serviceOptions.find((serviceItem) => serviceItem.name === sale.service)?.commission ?? 0;
+    const savedTotalCommission =
+      sale.commissionAmount ??
+      sale.commissionEntryAmount ??
+      (isLimpaNomeService(sale.service) ? 100 : serviceDefaultCommission);
+    const splitDefault =
+      isLimpaNomeService(sale.service)
+        ? { entry: sale.commissionEntryAmount ?? 50, pending: sale.commissionPendingAmount ?? 50 }
+        : splitCommissionByEntry(
+            serviceDefaultCommission,
+            sale.value,
+            sale.prazoPixEntryAmount ?? Math.min(397, sale.value),
+          );
     setForm({
       id: sale.id,
       date: sale.date,
@@ -427,13 +450,14 @@ function Sales() {
         sale.prazoPixPendingAmount ?? Math.max(sale.value - Math.min(397, sale.value), 0),
       ),
       prazoPixDueDays: String(sale.prazoPixDueDays ?? 30),
-      commissionEntryAmount: formatCurrencyInput(sale.commissionEntryAmount ?? 50),
-      commissionPendingAmount: formatCurrencyInput(sale.commissionPendingAmount ?? 50),
+      commissionEntryAmount: formatCurrencyInput(sale.commissionEntryAmount ?? splitDefault.entry),
+      commissionPendingAmount: formatCurrencyInput(sale.commissionPendingAmount ?? splitDefault.pending),
       commissionAmount: formatCurrencyInput(
         sale.commissionAmount ??
-          (isLimpaNomeService(sale.service)
-            ? (sale.commissionEntryAmount ?? 50) + (sale.commissionPendingAmount ?? 50)
-            : serviceOptions.find((serviceItem) => serviceItem.name === sale.service)?.commission ?? 0),
+          (method === "avista"
+            ? savedTotalCommission
+            : (sale.commissionEntryAmount ?? splitDefault.entry) +
+              (sale.commissionPendingAmount ?? splitDefault.pending)),
       ),
     });
     setOpen(true);
@@ -453,7 +477,14 @@ function Sales() {
       const entry = parseCurrencyInput(current.prazoPixEntryAmount || "397,00") || 397;
       const commissionEntry = parseCurrencyInput(current.commissionEntryAmount);
       const commissionPending = parseCurrencyInput(current.commissionPendingAmount);
-      const isCurrentLimpaNome = isLimpaNomeService(current.service);
+      const serviceDefaultCommission =
+        serviceOptions.find((service) => service.name === current.service)?.commission ?? 0;
+      const currentCommissionTotal =
+        parseCurrencyInput(current.commissionAmount) || commissionEntry + commissionPending || serviceDefaultCommission;
+      const split =
+        isLimpaNomeService(current.service)
+          ? { entry: commissionEntry || 50, pending: commissionPending || 50 }
+          : splitCommissionByEntry(currentCommissionTotal, parseCurrencyInput(nextValue), entry);
 
       return {
         ...current,
@@ -470,10 +501,14 @@ function Sales() {
             : current.prazoPixPendingAmount,
         prazoPixDueDays:
           nextMethod === "prazo_pix" ? current.prazoPixDueDays || "30" : current.prazoPixDueDays,
+        commissionEntryAmount:
+          nextMethod === "avista" ? current.commissionEntryAmount : formatCurrencyInput(split.entry),
+        commissionPendingAmount:
+          nextMethod === "avista" ? current.commissionPendingAmount : formatCurrencyInput(split.pending),
         commissionAmount:
-          isCurrentLimpaNome && nextMethod === "avista"
-            ? formatCurrencyInput(commissionEntry + commissionPending)
-            : current.commissionAmount,
+          nextMethod === "avista"
+            ? formatCurrencyInput(currentCommissionTotal)
+            : formatCurrencyInput(split.entry + split.pending),
       };
     });
   };
@@ -482,15 +517,31 @@ function Sales() {
     const selectedService = serviceOptions.find((service) => service.name === serviceName);
     const nextValue = formatCurrencyInput(selectedService?.price ?? 0);
     const isLimpaNome = isLimpaNomeService(serviceName);
-    const defaultEntryCommission = isLimpaNome ? 50 : Number(selectedService?.commission ?? 0);
-    const defaultPendingCommission = isLimpaNome ? 50 : 0;
     setForm((current) => ({
       ...current,
       service: serviceName,
       value: nextValue,
-      commissionEntryAmount: formatCurrencyInput(defaultEntryCommission),
-      commissionPendingAmount: formatCurrencyInput(defaultPendingCommission),
-      commissionAmount: formatCurrencyInput(defaultEntryCommission + defaultPendingCommission),
+      ...(() => {
+        const defaultCommission = Number(selectedService?.commission ?? 0);
+        const split =
+          isLimpaNome
+            ? { entry: 50, pending: 50 }
+            : current.paymentMethod === "prazo_pix"
+              ? splitCommissionByEntry(
+                  defaultCommission,
+                  parseCurrencyInput(nextValue),
+                  parseCurrencyInput(current.prazoPixEntryAmount),
+                )
+              : current.paymentMethod === "credito"
+                ? { entry: 0, pending: defaultCommission }
+                : { entry: defaultCommission, pending: 0 };
+
+        return {
+          commissionEntryAmount: formatCurrencyInput(split.entry),
+          commissionPendingAmount: formatCurrencyInput(split.pending),
+          commissionAmount: formatCurrencyInput(split.entry + split.pending),
+        };
+      })(),
       prazoPixPendingAmount:
         current.paymentMethod === "prazo_pix"
           ? formatCurrencyInput(
@@ -545,7 +596,6 @@ function Sales() {
       method === "prazo_pix"
         ? Number((entryAmount + pendingAmount).toFixed(2))
         : parseCurrencyInput(form.value);
-    const isEditing = Boolean(form.id);
     const status =
       method === "avista" || (method === "prazo_pix" && pendingAmount <= 0)
         ? "pago"
@@ -582,13 +632,10 @@ function Sales() {
       prazoPixEntryAmount: method === "prazo_pix" ? entryAmount : undefined,
       prazoPixPendingAmount: method === "prazo_pix" ? pendingAmount : undefined,
       prazoPixDueDays: method === "prazo_pix" ? dueDays : undefined,
-      commissionEntryAmount: isLimpaNomeService(service) ? entryCommission : singleCommission,
-      commissionPendingAmount: isLimpaNomeService(service) ? pendingCommission : undefined,
-      commissionAmount: isLimpaNomeService(service)
-        ? method === "avista"
-          ? singleCommission || entryCommission + pendingCommission
-          : undefined
-        : singleCommission,
+      commissionEntryAmount: method === "avista" ? undefined : entryCommission,
+      commissionPendingAmount: method === "avista" ? undefined : pendingCommission,
+      commissionAmount:
+        method === "avista" ? singleCommission || entryCommission + pendingCommission : undefined,
     };
 
     setSales((current) =>
@@ -816,37 +863,28 @@ function Sales() {
                         />
                       </>
                     )}
-                    {isLimpaNomeSale ? (
-                      paymentMethod === "avista" ? (
-                        <SaleField
-                          label="Comissão total à vista"
-                          value={form.commissionAmount}
-                          onChange={(value) => updateForm("commissionAmount", value)}
-                          onBlur={normalizeCommissionAmount}
-                        />
-                      ) : (
-                        <>
-                          <SaleField
-                            label="Comissão da entrada"
-                            value={form.commissionEntryAmount}
-                            onChange={(value) => updateForm("commissionEntryAmount", value)}
-                            onBlur={normalizeCommissionEntry}
-                          />
-                          <SaleField
-                            label="Comissão prevista/final"
-                            value={form.commissionPendingAmount}
-                            onChange={(value) => updateForm("commissionPendingAmount", value)}
-                            onBlur={normalizeCommissionPending}
-                          />
-                        </>
-                      )
-                    ) : (
+                    {paymentMethod === "avista" ? (
                       <SaleField
-                        label="Comissão da venda"
+                        label="Comissão total à vista"
                         value={form.commissionAmount}
                         onChange={(value) => updateForm("commissionAmount", value)}
                         onBlur={normalizeCommissionAmount}
                       />
+                    ) : (
+                      <>
+                        <SaleField
+                          label="Comissão da entrada"
+                          value={form.commissionEntryAmount}
+                          onChange={(value) => updateForm("commissionEntryAmount", value)}
+                          onBlur={normalizeCommissionEntry}
+                        />
+                        <SaleField
+                          label="Comissão prevista/final"
+                          value={form.commissionPendingAmount}
+                          onChange={(value) => updateForm("commissionPendingAmount", value)}
+                          onBlur={normalizeCommissionPending}
+                        />
+                      </>
                     )}
                   </div>
                   <div className="mt-4 rounded-lg border border-border/60 bg-background/40 p-3 text-sm text-muted-foreground">
@@ -854,10 +892,10 @@ function Sales() {
                     {currentPaymentPreview || "Informe o valor para calcular."}
                     <div className="mt-1">
                       <span className="font-medium text-foreground">Comissão: </span>
-                      {isLimpaNomeSale && paymentMethod !== "avista"
+                      {paymentMethod !== "avista"
                         ? `${formatBRL(commissionEntryAmount)} na entrada + ${formatBRL(commissionPendingAmount)} prevista`
                         : `${formatBRL(commissionAmount)} ao liberar a venda`}
-                      {!isLimpaNomeSale && selectedService?.commission ? (
+                      {selectedService?.commission ? (
                         <span> · padrão do serviço: {formatBRL(selectedService.commission)}</span>
                       ) : null}
                     </div>
