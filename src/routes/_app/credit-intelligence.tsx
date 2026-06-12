@@ -189,9 +189,10 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
             position: relative;
             isolation: isolate;
             width: 210mm;
-            min-height: 297mm;
+            height: 295mm;
+            max-height: 295mm;
             margin: 0 auto;
-            padding: 17mm;
+            padding: 12mm 14mm 10mm;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -216,10 +217,10 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
           .page::after {
             content: "";
             position: absolute;
-            inset: 8mm;
+            inset: 5mm;
             z-index: -1;
             border: 1px solid rgba(255, 122, 26, .24);
-            border-radius: 8mm;
+            border-radius: 7mm;
             box-shadow: inset 0 0 70px rgba(255, 122, 26, .08);
             pointer-events: none;
           }
@@ -231,16 +232,16 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
             gap: 18px;
           }
           .logo-wrap {
-            width: 48mm;
-            height: 30mm;
+            width: 39mm;
+            height: 24mm;
             display: grid;
             place-items: center;
-            border-radius: 7mm;
+            border-radius: 5mm;
             background: #030303;
             border: 1px solid rgba(255, 122, 26, .38);
             box-shadow: 0 20px 70px rgba(255, 92, 0, .18);
           }
-          .brand img { width: 39mm; height: auto; display: block; }
+          .brand img { width: 31mm; height: auto; display: block; }
           .tag {
             display: inline-flex;
             align-items: center;
@@ -264,31 +265,31 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
             box-shadow: 0 0 18px #ff7a1a;
           }
           h1 {
-            margin: 25mm 0 6mm;
+            margin: 17mm 0 5mm;
             max-width: 172mm;
-            font-size: 17mm;
+            font-size: 15mm;
             line-height: .96;
             letter-spacing: -.04em;
           }
-          h2 { margin: 0 0 5mm; font-size: 8mm; line-height: 1.05; letter-spacing: -.02em; }
+          h2 { margin: 0 0 4mm; font-size: 6.7mm; line-height: 1.05; letter-spacing: -.02em; }
           h3 { margin: 0 0 2mm; font-size: 4.15mm; line-height: 1.25; color: #fff; }
-          p { margin: 0; line-height: 1.52; color: #d8c9be; font-size: 3.5mm; }
-          .lead { max-width: 158mm; font-size: 5.2mm; line-height: 1.45; color: #f2e8df; }
+          p { margin: 0; line-height: 1.42; color: #d8c9be; font-size: 3.35mm; }
+          .lead { max-width: 158mm; font-size: 4.8mm; line-height: 1.38; color: #f2e8df; }
           .muted { color: #9f9188; }
           .accent { color: #ff8426; }
-          .section { margin-top: 7mm; }
-          .small-section { margin-top: 4.5mm; }
-          .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4.5mm; }
-          .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4.5mm; }
+          .section { margin-top: 5mm; }
+          .small-section { margin-top: 3mm; }
+          .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3.5mm; }
+          .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3.5mm; }
           .card {
             position: relative;
             overflow: hidden;
             border: 1px solid rgba(255,255,255,.11);
-            border-radius: 5mm;
+            border-radius: 4.5mm;
             background:
               linear-gradient(145deg, rgba(255,255,255,.082), rgba(255,255,255,.026)),
               rgba(10, 7, 5, .72);
-            padding: 5mm;
+            padding: 4mm;
             box-shadow: 0 16px 48px rgba(0,0,0,.34);
             break-inside: avoid;
           }
@@ -300,13 +301,13 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
             pointer-events: none;
           }
           .hero-panel {
-            margin-top: 18mm;
+            margin-top: 10mm;
             display: grid;
             grid-template-columns: 1.05fr .95fr;
-            gap: 5mm;
+            gap: 4mm;
             align-items: stretch;
           }
-          .kpi { min-height: 31mm; }
+          .kpi { min-height: 25mm; }
           .kpi .label {
             color: #a99b92;
             font-size: 2.75mm;
@@ -315,27 +316,27 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
             font-weight: 800;
           }
           .kpi .value {
-            margin-top: 3mm;
+            margin-top: 2mm;
             color: #fff;
-            font-size: 9mm;
+            font-size: 7.7mm;
             line-height: 1;
             font-weight: 950;
             letter-spacing: -.03em;
           }
-          .bar { height: 2.7mm; margin-top: 4mm; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; }
+          .bar { height: 2.2mm; margin-top: 3mm; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; }
           .bar span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #ff6f18, #ffc078); }
           .probability {
             display: grid;
             place-items: center;
-            min-height: 82mm;
+            min-height: 61mm;
             text-align: center;
             background:
               radial-gradient(circle, rgba(255, 122, 26, .18) 0 46%, transparent 47%),
               linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
           }
-          .probability .big { font-size: 24mm; font-weight: 950; line-height: .95; letter-spacing: -.06em; color: #ff8426; }
+          .probability .big { font-size: 19mm; font-weight: 950; line-height: .95; letter-spacing: -.06em; color: #ff8426; }
           .probability .sub { margin-top: 2mm; font-size: 3.2mm; color: #d8c9be; text-transform: uppercase; letter-spacing: .18em; }
-          .pill-row { display: flex; flex-wrap: wrap; gap: 2.5mm; margin-top: 6mm; }
+          .pill-row { display: flex; flex-wrap: wrap; gap: 2mm; margin-top: 4mm; }
           .pill {
             border: 1px solid rgba(255, 122, 26, .28);
             border-radius: 999px;
@@ -345,8 +346,8 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
             font-size: 3mm;
             font-weight: 800;
           }
-          ul { margin: 3mm 0 0; padding-left: 4.5mm; color: #dccfc6; line-height: 1.48; font-size: 3.25mm; }
-          li { margin: 1.5mm 0; }
+          ul { margin: 2.4mm 0 0; padding-left: 4.2mm; color: #dccfc6; line-height: 1.38; font-size: 3.05mm; }
+          li { margin: 1mm 0; }
           .issue { border-left: 1.2mm solid #ff7a1a; }
           .step-number {
             width: 9mm;
@@ -361,12 +362,12 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
           }
           .page-footer {
             margin-top: auto;
-            padding-top: 7mm;
+            padding-top: 4mm;
             display: flex;
             align-items: center;
             justify-content: space-between;
             color: #8d8078;
-            font-size: 2.75mm;
+            font-size: 2.55mm;
           }
           .page-footer::after { counter-increment: page; content: "Página " counter(page); }
           .cover-mark {
@@ -382,7 +383,7 @@ function renderCreditAnalysisPdf(analysis: CreditAnalysisRecord) {
           @media print {
             .print-toolbar { display: none; }
             html, body { width: 210mm; background: #050505; }
-            .page { margin: 0; box-shadow: none; }
+            .page { margin: 0; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
           }
         </style>
       </head>
