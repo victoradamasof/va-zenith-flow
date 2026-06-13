@@ -1284,7 +1284,7 @@ function ContractPreview({
       <ContractSection title="Cláusula Primeira - Do Objeto">
         O presente contrato tem por objeto a prestação de consultoria e intermediação de serviços
         administrativos relacionados à contestação de apontamentos restritivos em cadastros de
-        crédito (SPC, Serasa, Boa Vista e Cenprot), referente ao serviço {form.service}.
+        crédito (SPC, Serasa, Boa Vista), referente ao serviço {form.service}.
       </ContractSection>
       <ContractSection title="Cláusula Segunda - Da Natureza do Serviço">
         O CONTRATANTE declara estar ciente de que o serviço contratado não implica quitação,
@@ -1774,7 +1774,7 @@ export function buildFullContractText(form: ContractForm, settings: ContractSett
     `CONTRATANTE: ${form.clientName || "[Nome do cliente]"}, ${form.nationality || "[nacionalidade]"}, ${form.maritalStatus || "[estado civil]"}, ${form.profession || "[profissão]"}, portador(a) do CPF/CNPJ nº ${form.clientDoc || "[CPF/CNPJ]"} e RG nº ${form.clientRg || "[RG]"}, residente e domiciliado(a) em ${form.clientAddress || "[endereço]"}, doravante denominado CONTRATANTE.`,
     "",
     "CLÁUSULA PRIMEIRA - DO OBJETO",
-    "1.1 O presente contrato tem por objeto a prestação de consultoria e intermediação de serviços administrativos relacionados à contestação de apontamentos restritivos em cadastros de crédito (SPC, Serasa, Boa Vista e Cenprot).",
+    "1.1 O presente contrato tem por objeto a prestação de consultoria e intermediação de serviços administrativos relacionados à contestação de apontamentos restritivos em cadastros de crédito (SPC, Serasa, Boa Vista).",
     "1.2 A CONTRATADA atua exclusivamente na função de consultoria, gestão administrativa e intermediação, conectando o CONTRATANTE a parceiros jurídicos regularmente habilitados, que são os responsáveis técnicos pela condução dos procedimentos administrativos ou judiciais.",
     "1.3 A CONTRATADA não executa serviços jurídicos próprios, não atua como escritório de advocacia e não presta assessoria jurídica direta.",
     "",
@@ -2307,7 +2307,7 @@ export function buildFullPrintableHtml(
   <p class="party"><strong>CONTRATANTE:</strong> ${escapeHtml(form.clientName || "[Nome do cliente]")}, ${escapeHtml(form.nationality || "[nacionalidade]")}, ${escapeHtml(form.maritalStatus || "[estado civil]")}, ${escapeHtml(form.profession || "[profissão]")}, portador(a) do CPF/CNPJ nº ${escapeHtml(form.clientDoc || "[CPF/CNPJ]")} e RG nº ${escapeHtml(form.clientRg || "[RG]")}, residente e domiciliado(a) em ${escapeHtml(form.clientAddress || "[endereço]")}, doravante denominado CONTRATANTE.</p>
 
   <h2>Cláusula Primeira - Do Objeto</h2>
-  <p>1.1 O presente contrato tem por objeto a prestação de consultoria e intermediação de serviços administrativos relacionados à contestação de apontamentos restritivos em cadastros de crédito (SPC, Serasa, Boa Vista e Cenprot).</p>
+  <p>1.1 O presente contrato tem por objeto a prestação de consultoria e intermediação de serviços administrativos relacionados à contestação de apontamentos restritivos em cadastros de crédito (SPC, Serasa, Boa Vista).</p>
   <p>1.2 A CONTRATADA atua exclusivamente na função de consultoria, gestão administrativa e intermediação, conectando o CONTRATANTE a parceiros jurídicos regularmente habilitados, que são os responsáveis técnicos pela condução dos procedimentos administrativos ou judiciais.</p>
   <p>1.3 A CONTRATADA não executa serviços jurídicos próprios, não atua como escritório de advocacia e não presta assessoria jurídica direta.</p>
 
