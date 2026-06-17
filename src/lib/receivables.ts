@@ -1,4 +1,8 @@
 import { addLocalDays, addLocalMonths, toLocalISODate } from "@/lib/date-utils";
+import {
+  formatCurrencyInput as formatCurrencyInputValue,
+  parseCurrencyInput as parseCurrencyInputValue,
+} from "@/lib/currency";
 
 export type PaymentMethod = "avista" | "prazo_pix" | "credito";
 
@@ -24,19 +28,11 @@ export const paymentMethods = [
 ] as const;
 
 export function parseCurrencyInput(value: string) {
-  const normalized = value.trim().replace(/[^\d,.]/g, "");
-  if (!normalized) return 0;
-  if (normalized.includes(",")) {
-    return Number(normalized.replace(/\./g, "").replace(",", ".")) || 0;
-  }
-  return Number(normalized.replace(/\./g, "")) || 0;
+  return parseCurrencyInputValue(value);
 }
 
 export function formatCurrencyInput(value: number) {
-  return value.toLocaleString("pt-BR", {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
+  return formatCurrencyInputValue(value);
 }
 
 function addDays(date: Date, days: number) {

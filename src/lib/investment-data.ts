@@ -1,3 +1,5 @@
+import { parseCurrencyInput, roundCurrency } from "@/lib/currency";
+
 export type InvestmentItem = {
   id: string;
   item: string;
@@ -33,14 +35,7 @@ export const investmentStatuses: InvestmentItem["status"][] = [
 ];
 
 function parseMoney(value: unknown) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  if (typeof value !== "string") return 0;
-  const normalized = value.trim().replace(/[^\d,.]/g, "");
-  if (!normalized) return 0;
-  if (normalized.includes(",")) {
-    return Number(normalized.replace(/\./g, "").replace(",", ".")) || 0;
-  }
-  return Number(normalized.replace(/\./g, "")) || 0;
+  return parseCurrencyInput(value);
 }
 
 function normalizeStatus(status: unknown): InvestmentItem["status"] {
@@ -90,7 +85,7 @@ function normalizeInvestmentText(value: unknown, fallback: string) {
 export function normalizeInvestmentByStatus(item: Partial<InvestmentItem>): InvestmentItem {
   const quantity = Math.max(1, Math.round(parseMoney(item.quantity)));
   const unitValue = parseMoney(item.unitValue);
-  const planned = parseMoney(item.planned) || Number((quantity * unitValue).toFixed(2));
+  const planned = parseMoney(item.planned) || roundCurrency(quantity * unitValue);
   const rawSpent = parseMoney(item.spent);
   const status = normalizeStatus(item.status);
   const normalized: InvestmentItem = {

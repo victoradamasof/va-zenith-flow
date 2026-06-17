@@ -86,6 +86,7 @@ import {
 } from "@/lib/bank-data";
 import type { Receivable } from "@/lib/receivables";
 import { classifyTransactionText } from "@/lib/transaction-intelligence";
+import { formatCurrencyInput, parseCurrencyInput } from "@/lib/currency";
 
 export const Route = createFileRoute("/_app/financial")({
   component: Financial,
@@ -137,24 +138,6 @@ const recurringLabels: Record<string, string> = {
   true: "Recorrente",
   false: "Avulsa",
 };
-
-function parseCurrencyInput(value: string) {
-  const normalized = value.trim().replace(/[^\d,.]/g, "");
-  if (!normalized) return 0;
-
-  if (normalized.includes(",")) {
-    return Number(normalized.replace(/\./g, "").replace(",", ".")) || 0;
-  }
-
-  return Number(normalized.replace(/\./g, "")) || 0;
-}
-
-function formatCurrencyInput(value: number) {
-  return value.toLocaleString("pt-BR", {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 function Financial() {
   const [sales, setSales] = usePersistentState("va-manager:sales", initialSales);

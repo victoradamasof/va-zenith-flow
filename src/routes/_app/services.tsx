@@ -21,6 +21,7 @@ import {
 import { Plus, Briefcase, RotateCcw, Pencil, Trash2, Search } from "lucide-react";
 import { services as initialServices, formatBRL } from "@/lib/mock-data";
 import { usePersistentState } from "@/hooks/use-persistent-state";
+import { formatCurrencyInput, parseCurrencyInput } from "@/lib/currency";
 
 export const Route = createFileRoute("/_app/services")({
   component: Services,
@@ -44,22 +45,6 @@ const defaultServiceCosts: Record<string, number> = {
   "Consultoria de Crédito": 520,
   "Reabilitação Financeira": 980,
 };
-
-function parseCurrencyInput(value: string) {
-  const normalized = value.trim().replace(/[^\d,.]/g, "");
-  if (!normalized) return 0;
-  if (normalized.includes(",")) {
-    return Number(normalized.replace(/\./g, "").replace(",", ".")) || 0;
-  }
-  return Number(normalized.replace(/\./g, "")) || 0;
-}
-
-function formatCurrencyInput(value: number) {
-  return value.toLocaleString("pt-BR", {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 const emptyForm = {
   id: "",

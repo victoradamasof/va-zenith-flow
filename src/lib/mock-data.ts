@@ -1,5 +1,7 @@
 ﻿// Mock data realista para VA Consultoria
 
+import { formatBRLCurrency } from "@/lib/currency";
+
 export const services = [
   {
     id: "s1",
@@ -587,8 +589,4 @@ export const users = [
 ];
 
 export const formatBRL = (v: number) =>
-  (Number.isFinite(v) ? v : 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    maximumFractionDigits: 0,
-  });
+  formatBRLCurrency(Number.isFinite(v) ? v : 0);

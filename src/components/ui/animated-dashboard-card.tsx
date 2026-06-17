@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { formatBRLCurrency } from "@/lib/currency";
 
 type AnimatedDashboardCardProps = {
   title?: string;
@@ -18,12 +19,7 @@ type AnimatedDashboardCardProps = {
   onMoreDetails?: () => void;
 };
 
-const formatBRL = (value: number) =>
-  value.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    maximumFractionDigits: 0,
-  });
+const formatBRL = (value: number) => formatBRLCurrency(value);
 
 function generateDots(count: number, radius: number, centerX: number, centerY: number) {
   return Array.from({ length: count }, (_, index) => {

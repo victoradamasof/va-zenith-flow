@@ -1,4 +1,5 @@
 import type { Receivable } from "@/lib/receivables";
+import { formatBRLCurrency } from "@/lib/currency";
 
 export const commissionPaymentsKey = "va-manager:commission-payments";
 
@@ -82,11 +83,7 @@ function getSaleCommissionAmount(value: unknown, fallback: number) {
 }
 
 function formatCommissionTriggerAmount(value: number) {
-  return value.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
-  });
+  return formatBRLCurrency(value);
 }
 
 function receivedAmount(receivables: Receivable[]) {
