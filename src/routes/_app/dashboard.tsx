@@ -59,9 +59,11 @@ import {
   defaultCashBalance,
 } from "@/lib/cash-data";
 import {
+  commissionAdjustmentsKey,
   calculateCommissionEntries,
   calculatePayableCommissions,
   commissionPaymentsKey,
+  type CommissionAdjustment,
   type CommissionPayment,
 } from "@/lib/commissions";
 import {
@@ -115,6 +117,10 @@ function Dashboard() {
     commissionPaymentsKey,
     [],
   );
+  const [commissionAdjustments] = usePersistentState<CommissionAdjustment[]>(
+    commissionAdjustmentsKey,
+    [],
+  );
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
   const [bankTransactions] = usePersistentState<BankTransaction[]>(
     bankTransactionsKey,
@@ -135,8 +141,9 @@ function Dashboard() {
         services,
         receivables,
         payments: commissionPayments,
+        adjustments: commissionAdjustments,
       }),
-    [commissionPayments, receivables, sales, services],
+    [commissionAdjustments, commissionPayments, receivables, sales, services],
   );
   const serviceCostEntries = useMemo(
     () => calculateServiceCostEntries({ sales, services, receivables }),

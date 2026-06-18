@@ -1,11 +1,19 @@
 import type { Receivable } from "@/lib/receivables";
-import { formatBRLCurrency } from "@/lib/currency";
+import { formatBRLCurrency, roundCurrency } from "@/lib/currency";
 
 export const commissionPaymentsKey = "va-manager:commission-payments";
+export const commissionAdjustmentsKey = "va-manager:commission-adjustments";
 
 export type CommissionPayment = {
   id: string;
   paidAt: string;
+};
+
+export type CommissionAdjustment = {
+  id: string;
+  amount?: number;
+  description?: string;
+  updatedAt?: string;
 };
 
 export type CommissionStatus = "prevista" | "a_pagar" | "paga";
@@ -21,6 +29,9 @@ export type CommissionEntry = {
   service: string;
   saleValue: number;
   amount: number;
+  originalAmount?: number;
+  adjusted?: boolean;
+  description?: string;
   label: string;
   trigger: "venda" | "entrada_limpa_nome" | "entrega_limpa_nome" | "entrada_servico" | "recebimento_servico";
   triggerLabel: string;
@@ -139,16 +150,19 @@ export function calculateCommissionEntries({
   services,
   receivables,
   payments,
+  adjustments,
 }: {
   sales: CommissionSale[];
   services: CommissionService[];
   receivables?: Receivable[];
   payments?: CommissionPayment[];
+  adjustments?: CommissionAdjustment[];
 }) {
   const allReceivables = receivables ?? [];
   const allPayments = payments ?? [];
+  const allAdjustments = adjustments ?? [];
 
-  return sales.flatMap((sale) => {
+  const entries = sales.flatMap((sale) => {
     const saleReceivables = allReceivables.filter((receivable) => receivable.sourceId === sale.id);
     const saleReceived = receivedAmount(saleReceivables);
     const hasReceivables = saleReceivables.length > 0;
@@ -327,6 +341,33 @@ export function calculateCommissionEntries({
         status: payment ? "paga" : "a_pagar",
       },
     ];
+  });
+
+  return applyCommissionAdjustments(entries, allAdjustments);
+}
+
+function applyCommissionAdjustments(
+  entries: CommissionEntry[],
+  adjustments: CommissionAdjustment[],
+) {
+  if (adjustments.length === 0) return entries;
+  const adjustmentsById = new Map(adjustments.map((adjustment) => [adjustment.id, adjustment]));
+
+  return entries.map((entry) => {
+    const adjustment = adjustmentsById.get(entry.id);
+    if (!adjustment) return entry;
+
+    const hasAmount = typeof adjustment.amount === "number" && Number.isFinite(adjustment.amount);
+    const amount = hasAmount ? Math.max(roundCurrency(adjustment.amount ?? entry.amount), 0) : entry.amount;
+    const description = String(adjustment.description ?? "").trim();
+
+    return {
+      ...entry,
+      amount,
+      originalAmount: hasAmount ? entry.amount : entry.originalAmount,
+      adjusted: hasAmount && amount !== entry.amount,
+      description: description || undefined,
+    };
   });
 }
 

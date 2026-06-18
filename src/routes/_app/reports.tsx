@@ -15,9 +15,11 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { calculatePaidExpenses, calculateReceivedRevenue } from "@/lib/cash-data";
 import {
+  commissionAdjustmentsKey,
   calculateCommissionEntries,
   calculatePayableCommissions,
   commissionPaymentsKey,
+  type CommissionAdjustment,
   type CommissionPayment,
 } from "@/lib/commissions";
 import {
@@ -102,12 +104,17 @@ function Reports() {
     commissionPaymentsKey,
     [],
   );
+  const [commissionAdjustments] = usePersistentState<CommissionAdjustment[]>(
+    commissionAdjustmentsKey,
+    [],
+  );
   const [receivables] = useSyncedReceivables({ sales });
   const commissionEntries = calculateCommissionEntries({
     sales,
     services,
     receivables,
     payments: commissionPayments,
+    adjustments: commissionAdjustments,
   });
   const serviceCostEntries = calculateServiceCostEntries({ sales, services, receivables });
 

@@ -33,8 +33,10 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { applyGoalMetrics } from "@/lib/goal-metrics";
 import {
+  commissionAdjustmentsKey,
   calculateCommissionEntries,
   commissionPaymentsKey,
+  type CommissionAdjustment,
   type CommissionPayment,
 } from "@/lib/commissions";
 import { calculateServiceCostEntries } from "@/lib/service-costs";
@@ -79,6 +81,10 @@ function Goals() {
     commissionPaymentsKey,
     [],
   );
+  const [commissionAdjustments] = usePersistentState<CommissionAdjustment[]>(
+    commissionAdjustmentsKey,
+    [],
+  );
   const [receivables] = useSyncedReceivables({ sales });
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -90,8 +96,9 @@ function Goals() {
         services,
         receivables,
         payments: commissionPayments,
+        adjustments: commissionAdjustments,
       }),
-    [commissionPayments, receivables, sales, services],
+    [commissionAdjustments, commissionPayments, receivables, sales, services],
   );
   const serviceCostEntries = useMemo(
     () => calculateServiceCostEntries({ sales, services, receivables }),

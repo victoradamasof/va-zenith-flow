@@ -21,7 +21,7 @@ import {
   defaultBankConnection,
   initialBankTransactions,
 } from "@/lib/bank-data";
-import { commissionPaymentsKey } from "@/lib/commissions";
+import { commissionAdjustmentsKey, commissionPaymentsKey } from "@/lib/commissions";
 import { creditAnalysesKey } from "@/lib/credit-intelligence";
 
 export const dataKeys = [
@@ -41,6 +41,7 @@ export const dataKeys = [
   cashBalanceKey,
   investmentContributionKey,
   commissionPaymentsKey,
+  commissionAdjustmentsKey,
   creditAnalysesKey,
 ] as const;
 
@@ -63,6 +64,7 @@ export const emptyData: Record<DataKey, unknown> = {
   [cashBalanceKey]: defaultCashBalance,
   [investmentContributionKey]: defaultInvestmentContribution,
   [commissionPaymentsKey]: [],
+  [commissionAdjustmentsKey]: [],
   [creditAnalysesKey]: [],
 };
 
@@ -83,6 +85,7 @@ export const demoData: Partial<Record<DataKey, unknown>> = {
   [cashBalanceKey]: defaultCashBalance,
   [investmentContributionKey]: defaultInvestmentContribution,
   [commissionPaymentsKey]: [],
+  [commissionAdjustmentsKey]: [],
   [creditAnalysesKey]: [],
 };
 

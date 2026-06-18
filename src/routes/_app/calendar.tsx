@@ -20,9 +20,11 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { applyGoalMetrics } from "@/lib/goal-metrics";
 import {
+  commissionAdjustmentsKey,
   calculateCommissionEntries,
   calculatePayableCommissions,
   commissionPaymentsKey,
+  type CommissionAdjustment,
   type CommissionPayment,
 } from "@/lib/commissions";
 import {
@@ -86,6 +88,10 @@ function SmartCalendar() {
     commissionPaymentsKey,
     [],
   );
+  const [commissionAdjustments] = usePersistentState<CommissionAdjustment[]>(
+    commissionAdjustmentsKey,
+    [],
+  );
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
   const [investments] = usePersistentState<InvestmentItem[]>(
     "va-manager:investments",
@@ -112,8 +118,9 @@ function SmartCalendar() {
         services,
         receivables,
         payments: commissionPayments,
+        adjustments: commissionAdjustments,
       }),
-    [commissionPayments, receivables, sales, services],
+    [commissionAdjustments, commissionPayments, receivables, sales, services],
   );
   const serviceCostEntries = useMemo(
     () => calculateServiceCostEntries({ sales, services, receivables }),

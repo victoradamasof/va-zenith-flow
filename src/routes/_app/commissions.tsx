@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   BadgeDollarSign,
   CheckCircle2,
   Clock3,
   Download,
+  Pencil,
   Search,
   Undo2,
   WalletCards,
@@ -16,7 +17,16 @@ import { KpiCard } from "@/components/kpi-card";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -25,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import {
   formatBRL,
   sales as initialSales,
@@ -35,10 +46,13 @@ import { buildCollaboratorMap, normalizeCollaboratorName } from "@/lib/collabora
 import {
   calculateCommissionEntries,
   calculateCommissionSummary,
+  commissionAdjustmentsKey,
   commissionPaymentsKey,
+  type CommissionAdjustment,
   type CommissionEntry,
   type CommissionPayment,
 } from "@/lib/commissions";
+import { formatCurrencyInput, parseCurrencyInput } from "@/lib/currency";
 import { getAuthSession, type AuthSession } from "@/lib/auth";
 import { isAdmin, isOwnedBySession, normalizePermissionText } from "@/lib/permissions";
 import { formatLocalDateBR, todayLocalISODate } from "@/lib/date-utils";
@@ -84,9 +98,18 @@ function Commissions() {
     commissionPaymentsKey,
     [],
   );
+  const [commissionAdjustments, setCommissionAdjustments] = usePersistentState<
+    CommissionAdjustment[]
+  >(commissionAdjustmentsKey, []);
   const [receivables] = useSyncedReceivables({ sales });
   const [session, setSession] = useState<AuthSession | null>(null);
   const [query, setQuery] = useState("");
+  const [editingEntry, setEditingEntry] = useState<CommissionEntry | null>(null);
+  const [editForm, setEditForm] = useState({
+    amount: "",
+    description: "",
+    markAsPaid: false,
+  });
 
   useEffect(() => {
     const refreshSession = () => setSession(getAuthSession());
@@ -109,8 +132,9 @@ function Commissions() {
         services,
         receivables,
         payments: commissionPayments,
+        adjustments: commissionAdjustments,
       }),
-    [commissionPayments, receivables, sales, services],
+    [commissionAdjustments, commissionPayments, receivables, sales, services],
   );
 
   const visibleEntries = useMemo(() => {
@@ -128,6 +152,7 @@ function Commissions() {
         entry.seller,
         entry.service,
         entry.label,
+        entry.description ?? "",
         statusLabels[entry.status],
       ]
         .join(" ")
@@ -171,6 +196,61 @@ function Commissions() {
     toast.success("Comissão voltou para a pagar.");
   };
 
+  const openEditor = (entry: CommissionEntry) => {
+    const isPaid = commissionPayments.some((payment) => payment.id === entry.id);
+    setEditingEntry(entry);
+    setEditForm({
+      amount: formatCurrencyInput(entry.amount),
+      description: entry.description ?? "",
+      markAsPaid: isPaid || entry.status === "paga",
+    });
+  };
+
+  const saveCommissionEdit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingEntry) return;
+
+    const amount = parseCurrencyInput(editForm.amount);
+    if (amount < 0) {
+      toast.warning("Informe uma comissão válida.");
+      return;
+    }
+
+    const description = editForm.description.trim();
+    const baseAmount = editingEntry.originalAmount ?? editingEntry.amount;
+    const hasCustomAmount = amount !== baseAmount;
+
+    setCommissionAdjustments((current) => {
+      const withoutCurrent = current.filter((adjustment) => adjustment.id !== editingEntry.id);
+      if (!hasCustomAmount && !description) return withoutCurrent;
+
+      return [
+        {
+          id: editingEntry.id,
+          amount: hasCustomAmount ? amount : undefined,
+          description,
+          updatedAt: todayLocalISODate(),
+        },
+        ...withoutCurrent,
+      ];
+    });
+
+    setCommissionPayments((current) => {
+      const withoutCurrent = current.filter((payment) => payment.id !== editingEntry.id);
+      if (!editForm.markAsPaid) return withoutCurrent;
+      return [
+        {
+          id: editingEntry.id,
+          paidAt: editingEntry.paidAt ?? todayLocalISODate(),
+        },
+        ...withoutCurrent,
+      ];
+    });
+
+    setEditingEntry(null);
+    toast.success("Comissão atualizada.");
+  };
+
   const exportCsv = () => {
     const rows = [
       [
@@ -180,6 +260,7 @@ function Commissions() {
         "Cliente",
         "Serviço",
         "Gatilho",
+        "Descrição",
         "Valor da venda",
         "Comissão",
         "Status",
@@ -191,6 +272,7 @@ function Commissions() {
         entry.client,
         entry.service,
         entry.label,
+        entry.description ?? "",
         String(entry.saleValue),
         String(entry.amount),
         statusLabels[entry.status],
@@ -224,6 +306,89 @@ function Commissions() {
           </Button>
         }
       />
+
+      <Dialog open={Boolean(editingEntry)} onOpenChange={(open) => !open && setEditingEntry(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Editar comissão</DialogTitle>
+            <DialogDescription>
+              Ajuste o valor, registre uma descrição e marque como paga quando houver adiantamento.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="space-y-4" onSubmit={saveCommissionEdit}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="commission-client">Cliente</Label>
+                <Input id="commission-client" value={editingEntry?.client ?? ""} disabled />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="commission-seller">Vendedor</Label>
+                <Input id="commission-seller" value={editingEntry?.seller ?? ""} disabled />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="commission-service">Serviço</Label>
+                <Input id="commission-service" value={editingEntry?.service ?? ""} disabled />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="commission-amount">Valor da comissão</Label>
+                <Input
+                  id="commission-amount"
+                  value={editForm.amount}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, amount: event.target.value }))
+                  }
+                  onBlur={() =>
+                    setEditForm((current) => ({
+                      ...current,
+                      amount: formatCurrencyInput(parseCurrencyInput(current.amount)),
+                    }))
+                  }
+                  inputMode="decimal"
+                  placeholder="0,00"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="commission-description">Descrição</Label>
+              <Textarea
+                id="commission-description"
+                value={editForm.description}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, description: event.target.value }))
+                }
+                placeholder="Ex: comissão adiantada, desconto combinado, pagamento parcial..."
+                rows={4}
+              />
+            </div>
+
+            <label className="flex items-start gap-3 rounded-xl border border-border/60 bg-background/40 p-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={editForm.markAsPaid}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, markAsPaid: event.target.checked }))
+                }
+              />
+              <span>
+                <span className="block font-medium">Marcar como paga/adiantada</span>
+                <span className="text-muted-foreground">
+                  Use quando a comissão foi antecipada mesmo antes do recebimento final.
+                </span>
+              </span>
+            </label>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditingEntry(null)}>
+                Cancelar
+              </Button>
+              <Button type="submit">Salvar comissão</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
@@ -384,12 +549,22 @@ function Commissions() {
                     <TableCell>
                       <div className="font-medium">{entry.label}</div>
                       <div className="text-xs text-muted-foreground">{entry.triggerLabel}</div>
+                      {entry.description && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Obs: {entry.description}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
                       {formatBRL(entry.saleValue)}
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums text-primary">
                       {formatBRL(entry.amount)}
+                      {entry.adjusted && (
+                        <div className="text-[11px] font-normal text-muted-foreground">
+                          original {formatBRL(entry.originalAmount ?? 0)}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge className={statusClasses[entry.status]}>
@@ -399,6 +574,10 @@ function Commissions() {
                     {canManagePayments && (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => openEditor(entry)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Editar
+                          </Button>
                           {entry.status === "paga" ? (
                             <Button variant="ghost" size="sm" onClick={() => markAsPayable(entry)}>
                               <Undo2 className="mr-2 h-4 w-4" />

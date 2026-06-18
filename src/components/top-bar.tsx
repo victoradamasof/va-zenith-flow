@@ -23,8 +23,10 @@ import {
   type BankTransaction,
 } from "@/lib/bank-data";
 import {
+  commissionAdjustmentsKey,
   calculateCommissionEntries,
   commissionPaymentsKey,
+  type CommissionAdjustment,
   type CommissionPayment,
 } from "@/lib/commissions";
 import { calculateServiceCostEntries } from "@/lib/service-costs";
@@ -45,6 +47,10 @@ export function TopBar() {
     commissionPaymentsKey,
     [],
   );
+  const [commissionAdjustments] = usePersistentState<CommissionAdjustment[]>(
+    commissionAdjustmentsKey,
+    [],
+  );
   const [cashBase] = usePersistentState(cashBalanceKey, defaultCashBalance);
   const [bankTransactions] = usePersistentState<BankTransaction[]>(
     bankTransactionsKey,
@@ -60,6 +66,7 @@ export function TopBar() {
       services,
       receivables,
       payments: commissionPayments,
+      adjustments: commissionAdjustments,
     });
     const serviceCostEntries = calculateServiceCostEntries({ sales, services, receivables });
     const syncedGoals = applyGoalMetrics(goals, {
@@ -85,6 +92,7 @@ export function TopBar() {
     bankTransactions,
     cashBase,
     clients,
+    commissionAdjustments,
     commissionPayments,
     expenses,
     goals,

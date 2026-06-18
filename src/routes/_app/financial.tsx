@@ -56,9 +56,11 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { filterSaleReceivables } from "@/lib/data-sync";
 import {
+  commissionAdjustmentsKey,
   calculateCommissionEntries,
   calculatePayableCommissions,
   commissionPaymentsKey,
+  type CommissionAdjustment,
   type CommissionPayment,
 } from "@/lib/commissions";
 import {
@@ -149,6 +151,10 @@ function Financial() {
   const [services] = usePersistentState("va-manager:services", initialServices);
   const [commissionPayments, setCommissionPayments] = usePersistentState<CommissionPayment[]>(
     commissionPaymentsKey,
+    [],
+  );
+  const [commissionAdjustments] = usePersistentState<CommissionAdjustment[]>(
+    commissionAdjustmentsKey,
     [],
   );
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
@@ -256,8 +262,9 @@ function Financial() {
         services,
         receivables,
         payments: commissionPayments,
+        adjustments: commissionAdjustments,
       }),
-    [commissionPayments, receivables, sales, services],
+    [commissionAdjustments, commissionPayments, receivables, sales, services],
   );
   const serviceCostEntries = useMemo(
     () => calculateServiceCostEntries({ sales, services, receivables }),
