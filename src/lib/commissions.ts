@@ -12,6 +12,7 @@ export type CommissionPayment = {
 export type CommissionAdjustment = {
   id: string;
   amount?: number;
+  paidAmount?: number;
   description?: string;
   updatedAt?: string;
 };
@@ -29,6 +30,8 @@ export type CommissionEntry = {
   service: string;
   saleValue: number;
   amount: number;
+  paidAmount?: number;
+  remainingAmount?: number;
   originalAmount?: number;
   adjusted?: boolean;
   description?: string;
@@ -359,26 +362,48 @@ function applyCommissionAdjustments(
 
     const hasAmount = typeof adjustment.amount === "number" && Number.isFinite(adjustment.amount);
     const amount = hasAmount ? Math.max(roundCurrency(adjustment.amount ?? entry.amount), 0) : entry.amount;
+    const hasPaidAmount =
+      typeof adjustment.paidAmount === "number" && Number.isFinite(adjustment.paidAmount);
+    const adjustedPaidAmount = hasPaidAmount
+      ? Math.min(Math.max(roundCurrency(adjustment.paidAmount ?? 0), 0), amount)
+      : undefined;
+    const paidAmount = entry.status === "paga" ? amount : adjustedPaidAmount;
+    const remainingAmount = Math.max(roundCurrency(amount - (paidAmount ?? 0)), 0);
     const description = String(adjustment.description ?? "").trim();
 
     return {
       ...entry,
       amount,
+      paidAmount,
+      remainingAmount,
       originalAmount: hasAmount ? entry.amount : entry.originalAmount,
       adjusted: hasAmount && amount !== entry.amount,
       description: description || undefined,
+      status: paidAmount && paidAmount >= amount ? "paga" : entry.status,
     };
   });
+}
+
+export function getCommissionPaidAmount(entry: CommissionEntry) {
+  if (entry.status === "paga") return entry.amount;
+  return Math.min(Math.max(roundCurrency(entry.paidAmount ?? 0), 0), entry.amount);
+}
+
+export function getCommissionRemainingAmount(entry: CommissionEntry) {
+  return Math.max(roundCurrency(entry.amount - getCommissionPaidAmount(entry)), 0);
 }
 
 export function calculateCommissionSummary(entries: CommissionEntry[]): CommissionSummary {
   return entries.reduce(
     (summary, entry) => {
+      const paidAmount = getCommissionPaidAmount(entry);
+      const remainingAmount = getCommissionRemainingAmount(entry);
+
       summary.count += 1;
       summary.total += entry.amount;
-      if (entry.status === "paga") summary.paid += entry.amount;
-      if (entry.status === "a_pagar") summary.payable += entry.amount;
-      if (entry.status === "prevista") summary.forecast += entry.amount;
+      summary.paid += paidAmount;
+      if (entry.status === "a_pagar") summary.payable += remainingAmount;
+      if (entry.status === "prevista") summary.forecast += remainingAmount;
       return summary;
     },
     { total: 0, paid: 0, payable: 0, forecast: 0, count: 0 },
@@ -386,13 +411,11 @@ export function calculateCommissionSummary(entries: CommissionEntry[]): Commissi
 }
 
 export function calculatePaidCommissions(entries: CommissionEntry[]) {
-  return entries
-    .filter((entry) => entry.status === "paga")
-    .reduce((sum, entry) => sum + entry.amount, 0);
+  return entries.reduce((sum, entry) => sum + getCommissionPaidAmount(entry), 0);
 }
 
 export function calculatePayableCommissions(entries: CommissionEntry[]) {
   return entries
     .filter((entry) => entry.status === "a_pagar")
-    .reduce((sum, entry) => sum + entry.amount, 0);
+    .reduce((sum, entry) => sum + getCommissionRemainingAmount(entry), 0);
 }

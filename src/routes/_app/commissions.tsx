@@ -48,6 +48,8 @@ import {
   calculateCommissionSummary,
   commissionAdjustmentsKey,
   commissionPaymentsKey,
+  getCommissionPaidAmount,
+  getCommissionRemainingAmount,
   type CommissionAdjustment,
   type CommissionEntry,
   type CommissionPayment,
@@ -107,6 +109,7 @@ function Commissions() {
   const [editingEntry, setEditingEntry] = useState<CommissionEntry | null>(null);
   const [editForm, setEditForm] = useState({
     amount: "",
+    paidAmount: "",
     description: "",
     markAsPaid: false,
   });
@@ -193,6 +196,14 @@ function Commissions() {
     }
 
     setCommissionPayments((current) => current.filter((payment) => payment.id !== entry.id));
+    setCommissionAdjustments((current) =>
+      current.flatMap((adjustment) => {
+        if (adjustment.id !== entry.id) return [adjustment];
+        const nextAdjustment = { ...adjustment, paidAmount: undefined };
+        if (nextAdjustment.amount === undefined && !nextAdjustment.description) return [];
+        return [nextAdjustment];
+      }),
+    );
     toast.success("Comissão voltou para a pagar.");
   };
 
@@ -201,6 +212,7 @@ function Commissions() {
     setEditingEntry(entry);
     setEditForm({
       amount: formatCurrencyInput(entry.amount),
+      paidAmount: formatCurrencyInput(getCommissionPaidAmount(entry)),
       description: entry.description ?? "",
       markAsPaid: isPaid || entry.status === "paga",
     });
@@ -211,23 +223,33 @@ function Commissions() {
     if (!editingEntry) return;
 
     const amount = parseCurrencyInput(editForm.amount);
+    const typedPaidAmount = parseCurrencyInput(editForm.paidAmount);
     if (amount < 0) {
       toast.warning("Informe uma comissão válida.");
+      return;
+    }
+    if (typedPaidAmount < 0) {
+      toast.warning("Informe um valor pago válido.");
       return;
     }
 
     const description = editForm.description.trim();
     const baseAmount = editingEntry.originalAmount ?? editingEntry.amount;
+    const paidAmount = editForm.markAsPaid
+      ? amount
+      : Math.min(Math.max(typedPaidAmount, 0), amount);
     const hasCustomAmount = amount !== baseAmount;
+    const hasPaidAmount = paidAmount > 0;
 
     setCommissionAdjustments((current) => {
       const withoutCurrent = current.filter((adjustment) => adjustment.id !== editingEntry.id);
-      if (!hasCustomAmount && !description) return withoutCurrent;
+      if (!hasCustomAmount && !hasPaidAmount && !description) return withoutCurrent;
 
       return [
         {
           id: editingEntry.id,
           amount: hasCustomAmount ? amount : undefined,
+          paidAmount: hasPaidAmount ? paidAmount : undefined,
           description,
           updatedAt: todayLocalISODate(),
         },
@@ -237,7 +259,7 @@ function Commissions() {
 
     setCommissionPayments((current) => {
       const withoutCurrent = current.filter((payment) => payment.id !== editingEntry.id);
-      if (!editForm.markAsPaid) return withoutCurrent;
+      if (!editForm.markAsPaid && paidAmount < amount) return withoutCurrent;
       return [
         {
           id: editingEntry.id,
@@ -263,6 +285,8 @@ function Commissions() {
         "Descrição",
         "Valor da venda",
         "Comissão",
+        "Valor pago",
+        "Valor restante",
         "Status",
       ],
       ...visibleEntries.map((entry) => [
@@ -275,6 +299,8 @@ function Commissions() {
         entry.description ?? "",
         String(entry.saleValue),
         String(entry.amount),
+        String(getCommissionPaidAmount(entry)),
+        String(getCommissionRemainingAmount(entry)),
         statusLabels[entry.status],
       ]),
     ];
@@ -348,6 +374,24 @@ function Commissions() {
                   placeholder="0,00"
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="commission-paid-amount">Valor já pago</Label>
+                <Input
+                  id="commission-paid-amount"
+                  value={editForm.paidAmount}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, paidAmount: event.target.value }))
+                  }
+                  onBlur={() =>
+                    setEditForm((current) => ({
+                      ...current,
+                      paidAmount: formatCurrencyInput(parseCurrencyInput(current.paidAmount)),
+                    }))
+                  }
+                  inputMode="decimal"
+                  placeholder="0,00"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -369,7 +413,11 @@ function Commissions() {
                 className="mt-1 h-4 w-4 accent-primary"
                 checked={editForm.markAsPaid}
                 onChange={(event) =>
-                  setEditForm((current) => ({ ...current, markAsPaid: event.target.checked }))
+                  setEditForm((current) => ({
+                    ...current,
+                    markAsPaid: event.target.checked,
+                    paidAmount: event.target.checked ? current.amount : current.paidAmount,
+                  }))
                 }
               />
               <span>
@@ -532,6 +580,8 @@ function Commissions() {
                 const seller = collaboratorsByName.get(normalizeCollaboratorName(entry.seller)) ?? {
                   name: entry.seller,
                 };
+                const paidAmount = getCommissionPaidAmount(entry);
+                const remainingAmount = getCommissionRemainingAmount(entry);
 
                 return (
                   <TableRow key={entry.id} className="hover:bg-muted/30">
@@ -563,6 +613,16 @@ function Commissions() {
                       {entry.adjusted && (
                         <div className="text-[11px] font-normal text-muted-foreground">
                           original {formatBRL(entry.originalAmount ?? 0)}
+                        </div>
+                      )}
+                      {paidAmount > 0 && (
+                        <div className="text-[11px] font-normal text-success">
+                          pago {formatBRL(paidAmount)}
+                        </div>
+                      )}
+                      {remainingAmount > 0 && paidAmount > 0 && (
+                        <div className="text-[11px] font-normal text-warning">
+                          falta {formatBRL(remainingAmount)}
                         </div>
                       )}
                     </TableCell>
@@ -647,10 +707,13 @@ function buildSellerRows(
       forecast: 0,
     };
 
+    const paidAmount = getCommissionPaidAmount(entry);
+    const remainingAmount = getCommissionRemainingAmount(entry);
+
     current.sales.add(entry.saleId);
-    if (entry.status === "paga") current.paid += entry.amount;
-    if (entry.status === "a_pagar") current.payable += entry.amount;
-    if (entry.status === "prevista") current.forecast += entry.amount;
+    current.paid += paidAmount;
+    if (entry.status === "a_pagar") current.payable += remainingAmount;
+    if (entry.status === "prevista") current.forecast += remainingAmount;
     rows.set(normalizedName, current);
   }
 
