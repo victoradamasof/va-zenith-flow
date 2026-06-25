@@ -12,6 +12,7 @@ type CashSale = {
 type CashExpense = {
   status: string;
   value: number;
+  paidAmount?: number;
 };
 
 type CashReceivable = {
@@ -56,14 +57,26 @@ export function calculateRealizedServiceCosts(serviceCosts: CashServiceCost[] = 
     .reduce((sum, cost) => sum + cost.amount, 0);
 }
 
+function clampMoney(value: number, max: number) {
+  return Math.min(Math.max(Number.isFinite(value) ? value : 0, 0), Math.max(max, 0));
+}
+
+export function calculateExpensePaidAmount(expense: CashExpense) {
+  if (expense.status === "pago") return Math.max(expense.value, 0);
+
+  return clampMoney(expense.paidAmount ?? 0, expense.value);
+}
+
+export function calculateExpenseRemainingAmount(expense: CashExpense) {
+  return Math.max(expense.value - calculateExpensePaidAmount(expense), 0);
+}
+
 export function calculatePaidExpenses(
   expenses: CashExpense[],
   commissions: CashCommission[] = [],
   serviceCosts: CashServiceCost[] = [],
 ) {
-  return expenses
-    .filter((expense) => expense.status === "pago")
-    .reduce((sum, expense) => sum + expense.value, 0) +
+  return expenses.reduce((sum, expense) => sum + calculateExpensePaidAmount(expense), 0) +
     calculatePaidCommissions(commissions) +
     calculateRealizedServiceCosts(serviceCosts);
 }

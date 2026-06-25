@@ -1,5 +1,6 @@
 import type { Receivable } from "@/lib/receivables";
 import { bankMethodLabels, type BankTransaction } from "@/lib/bank-data";
+import { calculateExpenseRemainingAmount } from "@/lib/cash-data";
 import { parseLocalDate, toLocalISODate } from "@/lib/date-utils";
 
 export type SmartCalendarEvent = {
@@ -97,6 +98,7 @@ export function buildSmartEvents({
     category: string;
     value: number;
     status: string;
+    paidAmount?: number;
   }>;
   receivables: Receivable[];
   goals: Array<{
@@ -150,7 +152,7 @@ export function buildSmartEvents({
       date: expense.date,
       title: expense.desc,
       subtitle: `${expense.category} · pagamento`,
-      amount: expense.value,
+      amount: calculateExpenseRemainingAmount(expense),
       type: "expense" as const,
       status: expense.status,
     })),

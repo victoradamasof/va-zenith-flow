@@ -1,4 +1,8 @@
-import { calculateCurrentCash } from "@/lib/cash-data";
+import {
+  calculateCurrentCash,
+  calculateExpensePaidAmount,
+  calculateExpenseRemainingAmount,
+} from "@/lib/cash-data";
 import { formatBRL } from "@/lib/mock-data";
 import {
   calculateScheduledBankInflows,
@@ -37,6 +41,7 @@ type Expense = {
   category: string;
   value: number;
   status: string;
+  paidAmount?: number;
 };
 
 type Client = {
@@ -98,7 +103,7 @@ export function generateSystemAlerts({
     commissions,
     serviceCosts,
   );
-  const openExpenses = expenses.filter((expense) => expense.status !== "pago");
+  const openExpenses = expenses.filter((expense) => calculateExpenseRemainingAmount(expense) > 0);
   const pendingReceivables = receivables.filter((receivable) => receivable.status === "previsto");
   const payableCommissions = commissions
     .filter((commission) => commission.status !== "paga")
@@ -115,7 +120,7 @@ export function generateSystemAlerts({
   const projectedBalance =
     currentCash +
     pendingReceivables.reduce((sum, receivable) => sum + receivable.amount, 0) -
-    openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
+    openExpenses.reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
     calculateScheduledBankInflows(bankTransactions) -
     calculateScheduledBankOutflows(bankTransactions) -
     payableCommissions -
@@ -130,7 +135,9 @@ export function generateSystemAlerts({
         id: `expense-overdue-${expense.id}`,
         type: "danger",
         title: "Conta vencida",
-        desc: `${expense.desc} - ${formatBRL(expense.value)} venceu ${formatRelativeDays(days)}`,
+        desc: `${expense.desc} - ${formatBRL(
+          calculateExpenseRemainingAmount(expense),
+        )} venceu ${formatRelativeDays(days)}`,
         time: formatRelativeDays(days),
         target: "Gestão Financeira",
       });
@@ -139,7 +146,9 @@ export function generateSystemAlerts({
         id: `expense-due-${expense.id}`,
         type: "warning",
         title: "Conta vencendo",
-        desc: `${expense.desc} - ${formatBRL(expense.value)} vence ${formatRelativeDays(days)}`,
+        desc: `${expense.desc} - ${formatBRL(
+          calculateExpenseRemainingAmount(expense),
+        )} vence ${formatRelativeDays(days)}`,
         time: formatRelativeDays(days),
         target: "Gestão Financeira",
       });
@@ -271,13 +280,13 @@ export function generateSystemAlerts({
     });
   } else if (
     currentCash <
-    openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
+    openExpenses.reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
       calculateScheduledBankOutflows(bankTransactions) +
       payableCommissions +
       pendingServiceCosts
   ) {
     const commitments =
-      openExpenses.reduce((sum, expense) => sum + expense.value, 0) +
+      openExpenses.reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
       calculateScheduledBankOutflows(bankTransactions) +
       payableCommissions +
       pendingServiceCosts;
@@ -293,13 +302,16 @@ export function generateSystemAlerts({
     });
   }
 
-  const paidExpenses = expenses.filter((expense) => expense.status === "pago");
-  const totalPaidExpenses = paidExpenses.reduce((sum, expense) => sum + expense.value, 0);
+  const paidExpenses = expenses.filter((expense) => calculateExpensePaidAmount(expense) > 0);
+  const totalPaidExpenses = paidExpenses.reduce(
+    (sum, expense) => sum + calculateExpensePaidAmount(expense),
+    0,
+  );
   const categoryTotals = new Map<string, number>();
   for (const expense of paidExpenses) {
     categoryTotals.set(
       expense.category,
-      (categoryTotals.get(expense.category) ?? 0) + expense.value,
+      (categoryTotals.get(expense.category) ?? 0) + calculateExpensePaidAmount(expense),
     );
   }
   const topCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0];

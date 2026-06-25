@@ -25,7 +25,13 @@ import {
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
 import { filterSaleReceivables } from "@/lib/data-sync";
-import { calculateCurrentCash, cashBalanceKey, defaultCashBalance } from "@/lib/cash-data";
+import {
+  calculateCurrentCash,
+  calculateExpensePaidAmount,
+  calculateExpenseRemainingAmount,
+  cashBalanceKey,
+  defaultCashBalance,
+} from "@/lib/cash-data";
 import {
   commissionAdjustmentsKey,
   calculateCommissionEntries,
@@ -125,14 +131,18 @@ function CashFlow() {
   const receivedInPeriod = filteredReceivables.filter(
     (receivable) => receivable.status === "recebido",
   );
-  const paidExpensesInPeriod = filteredExpenses.filter((expense) => isPaid(expense.status));
+  const paidExpensesInPeriod = filteredExpenses.filter(
+    (expense) => calculateExpensePaidAmount(expense) > 0,
+  );
   const pendingSalesInPeriod = filteredSales.filter(
     (sale) => !isPaid(sale.status) && !saleIdsWithReceivables.has(sale.id),
   );
   const pendingReceivablesInPeriod = filteredReceivables.filter(
     (receivable) => receivable.status === "previsto",
   );
-  const pendingExpensesInPeriod = filteredExpenses.filter((expense) => !isPaid(expense.status));
+  const pendingExpensesInPeriod = filteredExpenses.filter(
+    (expense) => calculateExpenseRemainingAmount(expense) > 0,
+  );
   const realizedBankInflows = filteredBankTransactions.filter(
     (transaction) => isBankTransactionRealized(transaction) && isBankInflow(transaction),
   );
@@ -165,7 +175,7 @@ function CashFlow() {
     receivedInPeriod.reduce((sum, receivable) => sum + receivable.amount, 0) +
     realizedBankInflows.reduce((sum, transaction) => sum + transaction.amount, 0);
   const saidas =
-    paidExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0) +
+    paidExpensesInPeriod.reduce((sum, expense) => sum + calculateExpensePaidAmount(expense), 0) +
     realizedBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0) +
     paidCommissionsInPeriod.reduce((sum, commission) => sum + commission.amount, 0) +
     realizedServiceCostsInPeriod.reduce((sum, cost) => sum + cost.amount, 0);
@@ -186,7 +196,7 @@ function CashFlow() {
     pendingReceivablesInPeriod.reduce((sum, receivable) => sum + receivable.amount, 0) +
     scheduledBankInflows.reduce((sum, transaction) => sum + transaction.amount, 0);
   const saidasPrevistas =
-    pendingExpensesInPeriod.reduce((sum, expense) => sum + expense.value, 0) +
+    pendingExpensesInPeriod.reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
     scheduledBankOutflows.reduce((sum, transaction) => sum + transaction.amount, 0) +
     payableCommissionsInPeriod.reduce((sum, commission) => sum + commission.amount, 0) +
     pendingServiceCostsInPeriod.reduce((sum, cost) => sum + cost.amount, 0);
@@ -232,9 +242,11 @@ function CashFlow() {
       const realizedExpenses = expenses
         .filter(
           (expense) =>
-            isPaid(expense.status) && expense.date <= key && parseLocalDate(expense.date) >= start,
+            calculateExpensePaidAmount(expense) > 0 &&
+            expense.date <= key &&
+            parseLocalDate(expense.date) >= start,
         )
-        .reduce((sum, expense) => sum + expense.value, 0);
+        .reduce((sum, expense) => sum + calculateExpensePaidAmount(expense), 0);
       const realizedCommissions = commissionEntries
         .filter(
           (commission) =>
@@ -292,9 +304,11 @@ function CashFlow() {
       const projectedExpenses = expenses
         .filter(
           (expense) =>
-            !isPaid(expense.status) && expense.date <= key && parseLocalDate(expense.date) >= start,
+            calculateExpenseRemainingAmount(expense) > 0 &&
+            expense.date <= key &&
+            parseLocalDate(expense.date) >= start,
         )
-        .reduce((sum, expense) => sum + expense.value, 0);
+        .reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0);
       const projectedCommissions = commissionEntries
         .filter(
           (commission) =>
@@ -344,8 +358,8 @@ function CashFlow() {
             .reduce((sum, transaction) => sum + transaction.amount, 0),
         saidas:
           expenses
-            .filter((expense) => isPaid(expense.status) && expense.date === key)
-            .reduce((sum, expense) => sum + expense.value, 0) +
+            .filter((expense) => calculateExpensePaidAmount(expense) > 0 && expense.date === key)
+            .reduce((sum, expense) => sum + calculateExpensePaidAmount(expense), 0) +
           bankTransactions
             .filter(
               (transaction) =>

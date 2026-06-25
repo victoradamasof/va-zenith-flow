@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { PremiumActionButton } from "@/components/ui/premium-action-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +70,8 @@ import {
 } from "@/lib/service-costs";
 import {
   calculateCurrentCash,
+  calculateExpensePaidAmount,
+  calculateExpenseRemainingAmount,
   calculatePaidExpenses,
   calculateReceivedRevenue,
   cashBalanceKey,
@@ -122,7 +125,10 @@ const bankStatusLabels: Record<BankTransactionStatus, string> = {
   cancelado: "Cancelado",
 };
 
-type Expense = (typeof initialExpenses)[number];
+type Expense = (typeof initialExpenses)[number] & {
+  paidAmount?: number;
+  notes?: string;
+};
 type Collaborator = (typeof initialSellers)[number] & { role?: string; photoUrl?: string };
 
 const emptyExpenseForm = {
@@ -130,8 +136,10 @@ const emptyExpenseForm = {
   desc: "",
   category: "Marketing",
   value: "",
+  paidAmount: "",
   status: "pendente",
   recurring: "true",
+  notes: "",
 };
 
 const expenseStatusOptions = ["pendente", "pago", "atrasado", "parcial"];
@@ -143,7 +151,10 @@ const recurringLabels: Record<string, string> = {
 
 function Financial() {
   const [sales, setSales] = usePersistentState("va-manager:sales", initialSales);
-  const [expenses, setExpenses] = usePersistentState("va-manager:expenses", initialExpenses);
+  const [expenses, setExpenses] = usePersistentState<Expense[]>(
+    "va-manager:expenses",
+    initialExpenses,
+  );
   const [collaborators] = usePersistentState<Collaborator[]>(
     "va-manager:collaborators",
     initialSellers,
@@ -195,6 +206,7 @@ function Financial() {
         expense.category,
         expense.status,
         expense.recurring ? "recorrente" : "avulsa",
+        expense.notes ?? "",
       ]
         .join(" ")
         .toLowerCase()
@@ -321,8 +333,10 @@ function Financial() {
   );
   const aPagar =
     expenses
-      .filter((expense) => expense.status === "pendente" || expense.status === "atrasado")
-      .reduce((sum, expense) => sum + expense.value, 0) +
+      .filter((expense) =>
+        ["pendente", "atrasado", "parcial"].includes(expense.status),
+      )
+      .reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
     scheduledBankOutflows +
     payableCommissions +
     pendingServiceCosts;
@@ -392,8 +406,10 @@ function Financial() {
       desc: expense.desc,
       category: expense.category,
       value: formatCurrencyInput(expense.value),
+      paidAmount: expense.paidAmount ? formatCurrencyInput(expense.paidAmount) : "",
       status: expense.status,
       recurring: String(expense.recurring),
+      notes: expense.notes ?? "",
     });
     setOpen(true);
   };
@@ -409,14 +425,27 @@ function Financial() {
     const desc = form.desc.trim();
     if (!desc) return;
     const category = saveCategoryIfMissing(form.category);
+    const value = parseCurrencyInput(form.value);
+    const typedPaidAmount = parseCurrencyInput(form.paidAmount);
+    const paidAmount = form.status === "pago" ? value : Math.min(Math.max(typedPaidAmount, 0), value);
+    const status =
+      value > 0 && paidAmount >= value
+        ? "pago"
+        : paidAmount > 0
+          ? "parcial"
+          : form.status === "parcial"
+            ? "pendente"
+            : form.status;
     const expense: Expense = {
       id: editingExpenseId ?? `e-${Date.now()}`,
       date: form.date,
       desc,
       category,
-      value: parseCurrencyInput(form.value),
-      status: form.status,
+      value,
+      paidAmount: paidAmount > 0 ? paidAmount : undefined,
+      status,
       recurring: form.recurring === "true",
+      notes: form.notes.trim() || undefined,
     };
 
     setExpenses((current) =>
@@ -431,7 +460,14 @@ function Financial() {
 
   const updateExpenseStatus = (id: string, status: string) => {
     setExpenses((current) =>
-      current.map((expense) => (expense.id === id ? { ...expense, status } : expense)),
+      current.map((expense) => {
+        if (expense.id !== id) return expense;
+        if (status === "pago") return { ...expense, status, paidAmount: expense.value };
+        if (status === "pendente" || status === "atrasado") {
+          return { ...expense, status, paidAmount: undefined };
+        }
+        return { ...expense, status };
+      }),
     );
     toast.success(`Despesa marcada como ${status}.`);
   };
@@ -522,14 +558,16 @@ function Financial() {
 
   const exportCsv = () => {
     const rows = [
-      ["Tipo", "Data", "Descrição", "Categoria/Serviço", "Valor", "Status"],
+      ["Tipo", "Data", "Descrição", "Categoria/Serviço", "Valor", "Já pago", "Status", "Observações"],
       [
         "Caixa",
         todayLocalISODate(),
         "Caixa atual",
         "Operacional",
         String(currentCash),
+        "",
         "atual",
+        "",
       ],
       ...expenses.map((expense) => [
         "Despesa",
@@ -537,7 +575,9 @@ function Financial() {
         expense.desc,
         expense.category,
         String(expense.value),
+        String(calculateExpensePaidAmount(expense)),
         expense.status,
+        expense.notes ?? "",
       ]),
       ...sales.map((sale) => [
         "Receita",
@@ -545,7 +585,9 @@ function Financial() {
         sale.client,
         sale.service,
         String(sale.value),
+        "",
         sale.status,
+        "",
       ]),
       ...bankTransactions.map((transaction) => [
         transaction.type === "entrada" ? "Banco - entrada" : "Banco - saída",
@@ -553,7 +595,9 @@ function Financial() {
         transaction.description,
         transaction.category,
         String(transaction.amount),
+        "",
         transaction.status,
+        transaction.notes ?? "",
       ]),
     ];
     const csv = rows
@@ -677,6 +721,20 @@ function Financial() {
                       }
                       placeholder="Ex: 5000 ou 5.000,50"
                     />
+                    <FinanceField
+                      label="Já foi pago"
+                      value={form.paidAmount}
+                      onChange={(value) => updateForm("paidAmount", value)}
+                      onBlur={() =>
+                        updateForm(
+                          "paidAmount",
+                          form.paidAmount
+                            ? formatCurrencyInput(parseCurrencyInput(form.paidAmount))
+                            : "",
+                        )
+                      }
+                      placeholder="Ex: 150,00"
+                    />
                     <OptionSelectField
                       label="Status"
                       value={form.status}
@@ -690,6 +748,15 @@ function Financial() {
                       options={recurringOptions}
                       labels={recurringLabels}
                     />
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Descrição complementar</Label>
+                      <Textarea
+                        value={form.notes}
+                        onChange={(event) => updateForm("notes", event.target.value)}
+                        placeholder="Ex: valor adiantado, pagamento parcial, detalhes do fornecedor, comprovante..."
+                        className="min-h-24 resize-none"
+                      />
+                    </div>
                   </div>
                   <DialogFooter className="mt-6">
                     <Button type="button" variant="outline" onClick={closeDialog}>
@@ -740,7 +807,7 @@ function Financial() {
           value={formatBRL(aPagar)}
           icon={AlertCircle}
           accent="destructive"
-          hint={`${expenses.filter((expense) => expense.status === "pendente" || expense.status === "atrasado").length + bankTransactions.filter((item) => item.status === "agendado" && item.type === "saida").length} títulos`}
+          hint={`${expenses.filter((expense) => ["pendente", "atrasado", "parcial"].includes(expense.status)).length + bankTransactions.filter((item) => item.status === "agendado" && item.type === "saida").length} títulos`}
         />
       </div>
 
@@ -844,9 +911,20 @@ function Financial() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredExpenses.map((expense) => (
+                  {filteredExpenses.map((expense) => {
+                    const paidAmount = calculateExpensePaidAmount(expense);
+                    const remainingAmount = calculateExpenseRemainingAmount(expense);
+
+                    return (
                     <TableRow key={expense.id} className="hover:bg-muted/30">
-                      <TableCell className="font-medium">{expense.desc}</TableCell>
+                      <TableCell className="font-medium">
+                        <div>{expense.desc}</div>
+                        {expense.notes && (
+                          <div className="mt-1 max-w-sm text-xs font-normal text-muted-foreground">
+                            {expense.notes}
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="border-border/60">
                           {expense.category}
@@ -859,13 +937,23 @@ function Financial() {
                         {expense.recurring ? "Recorrente" : "Avulsa"}
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums">
-                        {formatBRL(expense.value)}
+                        <div>{formatBRL(expense.value)}</div>
+                        {paidAmount > 0 && expense.status !== "pago" && (
+                          <div className="mt-1 text-[11px] font-normal text-success">
+                            Pago {formatBRL(paidAmount)}
+                          </div>
+                        )}
+                        {paidAmount > 0 && remainingAmount > 0 && (
+                          <div className="text-[11px] font-normal text-warning">
+                            Falta {formatBRL(remainingAmount)}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge
                           className={`${statusBadge(expense.status)} hover:${statusBadge(expense.status)}`}
                         >
-                          {expense.status}
+                          {statusLabel(expense.status)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -902,7 +990,8 @@ function Financial() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                   {filteredExpenses.length === 0 && (
                     <TableRow>
                       <TableCell

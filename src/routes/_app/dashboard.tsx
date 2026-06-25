@@ -53,6 +53,7 @@ import { applyGoalMetrics } from "@/lib/goal-metrics";
 import { filterSaleReceivables } from "@/lib/data-sync";
 import {
   calculateCurrentCash,
+  calculateExpenseRemainingAmount,
   calculatePaidExpenses,
   calculateReceivedRevenue,
   cashBalanceKey,
@@ -204,7 +205,7 @@ function Dashboard() {
   const operationalCosts = paidExpenses + payableCommissions;
   const openExpenses = expenses
     .filter((expense) => expense.status !== "pago")
-    .reduce((sum, expense) => sum + expense.value, 0) +
+    .reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
     scheduledBankOutflows +
     payableCommissions +
     pendingServiceCosts;

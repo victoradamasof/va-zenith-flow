@@ -13,7 +13,11 @@ import {
 } from "@/lib/mock-data";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
-import { calculatePaidExpenses, calculateReceivedRevenue } from "@/lib/cash-data";
+import {
+  calculateExpenseRemainingAmount,
+  calculatePaidExpenses,
+  calculateReceivedRevenue,
+} from "@/lib/cash-data";
 import {
   commissionAdjustmentsKey,
   calculateCommissionEntries,
@@ -126,7 +130,7 @@ function Reports() {
   const pendingExpenses =
     expenses
       .filter((expense) => expense.status !== "pago")
-      .reduce((sum, expense) => sum + expense.value, 0) +
+      .reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
     payableCommissions +
     calculatePendingServiceCosts(serviceCostEntries);
   const profit = paidRevenue - operationalCosts;

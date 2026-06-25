@@ -55,6 +55,7 @@ import {
   isBankOutflow,
   type BankTransaction,
 } from "@/lib/bank-data";
+import { calculateExpenseRemainingAmount } from "@/lib/cash-data";
 import { formatLocalDateBR, parseLocalDate } from "@/lib/date-utils";
 export const Route = createFileRoute("/_app/calendar")({
   component: SmartCalendar,
@@ -178,7 +179,7 @@ function SmartCalendar() {
     })
     .slice(0, 8);
 
-  const openPayments = expenses.filter((expense) => expense.status !== "pago");
+  const openPayments = expenses.filter((expense) => calculateExpenseRemainingAmount(expense) > 0);
   const openReceivables = receivables.filter((receivable) => receivable.status === "previsto");
   const openBankPayments = bankTransactions.filter(
     (transaction) => transaction.status === "agendado" && isBankOutflow(transaction),
@@ -187,7 +188,7 @@ function SmartCalendar() {
     (transaction) => transaction.status === "agendado" && isBankInflow(transaction),
   );
   const payableAmount =
-    openPayments.reduce((sum, expense) => sum + expense.value, 0) +
+    openPayments.reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
     openBankPayments.reduce((sum, transaction) => sum + transaction.amount, 0) +
     calculatePayableCommissions(commissionEntries) +
     calculatePendingServiceCosts(serviceCostEntries);

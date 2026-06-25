@@ -1,3 +1,5 @@
+import { calculateExpensePaidAmount } from "@/lib/cash-data";
+
 type Sale = {
   id?: string;
   value: number;
@@ -7,6 +9,7 @@ type Sale = {
 type Expense = {
   value: number;
   status: string;
+  paidAmount?: number;
 };
 
 type Client = {
@@ -61,9 +64,7 @@ export function getGoalCurrent(goal: GoalLike, context: GoalMetricContext) {
     (context.commissions ?? []).reduce((sum, commission) => sum + commission.amount, 0) +
     (context.serviceCosts ?? []).reduce((sum, cost) => sum + cost.amount, 0);
   const paidExpenses =
-    context.expenses
-      .filter((expense) => expense.status === "pago")
-      .reduce((sum, expense) => sum + expense.value, 0) +
+    context.expenses.reduce((sum, expense) => sum + calculateExpensePaidAmount(expense), 0) +
     paidCommissions +
     realizedServiceCosts;
   const averageTicket = context.sales.length ? Math.round(totalRevenue / context.sales.length) : 0;
