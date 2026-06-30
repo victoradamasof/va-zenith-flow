@@ -200,6 +200,10 @@ function formatMonthLabel(monthKey: string) {
   return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
 }
 
+function isDateInMonth(date: string | undefined, monthKey: string) {
+  return Boolean(date) && getMonthKey(date ?? "") === monthKey;
+}
+
 function dateInSelectedMonth(originalDate: string, monthKey: string) {
   const [year, month] = monthKey.split("-").map(Number);
   const original = parseLocalDate(originalDate);
@@ -248,6 +252,54 @@ function buildMonthlyExpenseRows(expenses: Expense[], selectedMonth: string): Mo
 function getPaymentHistoryStatus(paid: number, total: number, fallback = "Pago") {
   if (paid > 0 && paid < total) return "Parcial";
   return fallback;
+}
+
+function MonthSelector({
+  month,
+  onMonthChange,
+}: {
+  month: string;
+  onMonthChange: (month: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={() => onMonthChange(shiftMonthKey(month, -1))}
+        aria-label="Mês anterior"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <Input
+        type="month"
+        value={month}
+        onChange={(event) => {
+          if (event.target.value) onMonthChange(event.target.value);
+        }}
+        className="h-9 w-40"
+        aria-label="Selecionar mês"
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={() => onMonthChange(shiftMonthKey(month, 1))}
+        aria-label="Próximo mês"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => onMonthChange(todayLocalISODate().slice(0, 7))}
+      >
+        Mês atual
+      </Button>
+    </div>
+  );
 }
 
 function Financial() {
@@ -324,32 +376,39 @@ function Financial() {
 
   const filteredSales = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return sales;
+    const monthSales = sales.filter((sale) => isDateInMonth(sale.date, selectedExpenseMonth));
+    if (!normalizedQuery) return monthSales;
 
-    return sales.filter((sale) =>
+    return monthSales.filter((sale) =>
       [sale.date, sale.client, sale.service, sale.status, sale.origin, sale.seller]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [query, sales]);
+  }, [query, sales, selectedExpenseMonth]);
 
   const filteredReceivables = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return receivables;
+    const monthReceivables = receivables.filter((item) =>
+      isDateInMonth(item.dueDate, selectedExpenseMonth),
+    );
+    if (!normalizedQuery) return monthReceivables;
 
-    return receivables.filter((item) =>
+    return monthReceivables.filter((item) =>
       [item.client, item.service, item.seller, item.origin, item.label, item.status, item.dueDate]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [query, receivables]);
+  }, [query, receivables, selectedExpenseMonth]);
   const filteredBankTransactions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return bankTransactions;
+    const monthTransactions = bankTransactions.filter((transaction) =>
+      isDateInMonth(transaction.date, selectedExpenseMonth),
+    );
+    if (!normalizedQuery) return monthTransactions;
 
-    return bankTransactions.filter((transaction) =>
+    return monthTransactions.filter((transaction) =>
       [
         transaction.date,
         transaction.description,
@@ -364,7 +423,7 @@ function Financial() {
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [bankTransactions, query]);
+  }, [bankTransactions, query, selectedExpenseMonth]);
   const collaboratorsByName = useMemo(() => buildCollaboratorMap(collaborators), [collaborators]);
 
   const saleReceivables = useMemo(
@@ -392,9 +451,12 @@ function Financial() {
   );
   const filteredCommissions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return commissionEntries;
+    const monthCommissions = commissionEntries.filter((entry) =>
+      isDateInMonth(entry.dueDate, selectedExpenseMonth),
+    );
+    if (!normalizedQuery) return monthCommissions;
 
-    return commissionEntries.filter((entry) =>
+    return monthCommissions.filter((entry) =>
       [
         entry.saleDate,
         entry.dueDate,
@@ -408,18 +470,21 @@ function Financial() {
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [commissionEntries, query]);
+  }, [commissionEntries, query, selectedExpenseMonth]);
   const filteredServiceCosts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return serviceCostEntries;
+    const monthServiceCosts = serviceCostEntries.filter((entry) =>
+      isDateInMonth(entry.date, selectedExpenseMonth),
+    );
+    if (!normalizedQuery) return monthServiceCosts;
 
-    return serviceCostEntries.filter((entry) =>
+    return monthServiceCosts.filter((entry) =>
       [entry.date, entry.client, entry.seller, entry.service, entry.status]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [query, serviceCostEntries]);
+  }, [query, selectedExpenseMonth, serviceCostEntries]);
   const payableCommissions = calculatePayableCommissions(commissionEntries);
   const pendingServiceCosts = calculatePendingServiceCosts(serviceCostEntries);
   const bankInflows = calculateBankInflows(bankTransactions);
@@ -469,6 +534,38 @@ function Financial() {
   const selectedMonthRecurringCount = monthlyExpenses.filter(
     (expense) => expense.recurring || expense.recurringSourceId,
   ).length;
+  const selectedMonthSalesTotal = filteredSales.reduce((sum, sale) => sum + sale.value, 0);
+  const selectedMonthReceivablesTotal = filteredReceivables.reduce(
+    (sum, receivable) => sum + receivable.amount,
+    0,
+  );
+  const selectedMonthCommissionsTotal = filteredCommissions.reduce(
+    (sum, entry) => sum + entry.amount,
+    0,
+  );
+  const selectedMonthServiceCostsTotal = filteredServiceCosts.reduce(
+    (sum, entry) => sum + entry.amount,
+    0,
+  );
+  const selectedMonthBankInflows = filteredBankTransactions
+    .filter((transaction) => transaction.status === "realizado" && transaction.type === "entrada")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const selectedMonthBankOutflows = filteredBankTransactions
+    .filter((transaction) => transaction.status === "realizado" && transaction.type === "saida")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const selectedMonthScheduledBankInflows = filteredBankTransactions
+    .filter((transaction) => transaction.status === "agendado" && transaction.type === "entrada")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const selectedMonthScheduledBankOutflows = filteredBankTransactions
+    .filter((transaction) => transaction.status === "agendado" && transaction.type === "saida")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const selectedMonthBankImpact = filteredBankTransactions.reduce(
+    (sum, transaction) =>
+      transaction.status === "cancelado"
+        ? sum
+        : sum + (transaction.type === "entrada" ? transaction.amount : -transaction.amount),
+    0,
+  );
   const paymentHistory = useMemo<PaymentHistoryEntry[]>(() => {
     const adjustmentById = new Map(
       commissionAdjustments.map((adjustment) => [adjustment.id, adjustment]),
@@ -610,9 +707,12 @@ function Financial() {
   ]);
   const filteredPaymentHistory = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
-    if (!normalizedQuery) return paymentHistory;
+    const monthHistory = paymentHistory.filter((entry) =>
+      isDateInMonth(entry.date, selectedExpenseMonth),
+    );
+    if (!normalizedQuery) return monthHistory;
 
-    return paymentHistory.filter((entry) =>
+    return monthHistory.filter((entry) =>
       [
         entry.date,
         entry.type,
@@ -625,7 +725,7 @@ function Financial() {
         .toLocaleLowerCase("pt-BR")
         .includes(normalizedQuery),
     );
-  }, [paymentHistory, query]);
+  }, [paymentHistory, query, selectedExpenseMonth]);
   const paymentHistoryInflow = filteredPaymentHistory
     .filter((entry) => entry.direction === "entrada")
     .reduce((sum, entry) => sum + entry.amount, 0);
@@ -1252,43 +1352,10 @@ function Financial() {
                     Avulsas do mês selecionado e recorrentes desde o mês de origem.
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setSelectedExpenseMonth((month) => shiftMonthKey(month, -1))}
-                    aria-label="Mês anterior"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Input
-                    type="month"
-                    value={selectedExpenseMonth}
-                    onChange={(event) => {
-                      if (event.target.value) setSelectedExpenseMonth(event.target.value);
-                    }}
-                    className="h-9 w-40"
-                    aria-label="Selecionar mês"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setSelectedExpenseMonth((month) => shiftMonthKey(month, 1))}
-                    aria-label="Próximo mês"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedExpenseMonth(todayLocalISODate().slice(0, 7))}
-                  >
-                    Mês atual
-                  </Button>
-                </div>
+                <MonthSelector
+                  month={selectedExpenseMonth}
+                  onMonthChange={setSelectedExpenseMonth}
+                />
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg border border-border/50 bg-card/45 p-3">
@@ -1322,6 +1389,7 @@ function Financial() {
                     <TableHead>Descrição</TableHead>
                     <TableHead>Categoria</TableHead>
                     <TableHead>Vencimento</TableHead>
+                    <TableHead>Pagamento</TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                     <TableHead>Status</TableHead>
@@ -1355,6 +1423,9 @@ function Financial() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {formatLocalDateBR(expense.date)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {paidAmount > 0 ? formatLocalDateBR(expense.paidAt ?? expense.date) : "-"}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {expense.recurring || expense.recurringSourceId ? "Recorrente" : "Avulsa"}
@@ -1418,7 +1489,7 @@ function Financial() {
                   {filteredExpenses.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={7}
+                        colSpan={8}
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nenhuma despesa encontrada para a busca atual.
@@ -1431,6 +1502,29 @@ function Financial() {
           </TabsContent>
 
           <TabsContent value="receitas" className="mt-0">
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-background/45 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <CalendarDays className="h-4 w-4" />
+                  Competência
+                </div>
+                <h3 className="mt-1 font-display text-lg font-semibold">
+                  {formatMonthLabel(selectedExpenseMonth)}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Vendas registradas no mês selecionado.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="outline" className="border-border/60">
+                  {formatBRL(selectedMonthSalesTotal)} no mês
+                </Badge>
+                <MonthSelector
+                  month={selectedExpenseMonth}
+                  onMonthChange={setSelectedExpenseMonth}
+                />
+              </div>
+            </div>
             <div className="overflow-hidden rounded-lg border border-border/60">
               <Table>
                 <TableHeader>
@@ -1478,20 +1572,36 @@ function Financial() {
           </TabsContent>
 
           <TabsContent value="previsivel" className="mt-0">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">
-                Parcelas e recebimentos futuros gerados por vendas e clientes. Ao marcar como
-                recebido, o caixa, recebíveis e status da venda são atualizados.
-              </p>
-              <Badge variant="outline" className="border-border/60">
-                {formatBRL(aReceber)} previsto
-              </Badge>
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-background/45 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <CalendarDays className="h-4 w-4" />
+                  Competência
+                </div>
+                <h3 className="mt-1 font-display text-lg font-semibold">
+                  {formatMonthLabel(selectedExpenseMonth)}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Parcelas com vencimento no mês selecionado. Ao marcar como recebido, o caixa,
+                  recebíveis e status da venda são atualizados.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="outline" className="border-border/60">
+                  {formatBRL(selectedMonthReceivablesTotal)} no mês
+                </Badge>
+                <MonthSelector
+                  month={selectedExpenseMonth}
+                  onMonthChange={setSelectedExpenseMonth}
+                />
+              </div>
             </div>
             <div className="overflow-hidden rounded-lg border border-border/60">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
                     <TableHead>Vencimento</TableHead>
+                    <TableHead>Recebimento</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Serviço</TableHead>
                     <TableHead>Vendedor</TableHead>
@@ -1514,6 +1624,11 @@ function Financial() {
                       <TableRow key={item.id} className="hover:bg-muted/30">
                         <TableCell className="text-muted-foreground">
                           {formatLocalDateBR(item.dueDate)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {item.status === "recebido"
+                            ? formatLocalDateBR(item.receivedAt ?? item.dueDate)
+                            : "-"}
                         </TableCell>
                         <TableCell className="font-medium">{item.client}</TableCell>
                         <TableCell>{item.service}</TableCell>
@@ -1563,7 +1678,7 @@ function Financial() {
                   {filteredReceivables.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={9}
+                        colSpan={10}
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nenhuma receita previsível encontrada.
@@ -1576,20 +1691,36 @@ function Financial() {
           </TabsContent>
 
           <TabsContent value="comissoes" className="mt-0">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">
-                Comissões liberadas entram em a pagar. Comissões pagas reduzem o caixa
-                automaticamente.
-              </p>
-              <Badge variant="outline" className="border-border/60">
-                {formatBRL(payableCommissions)} a pagar
-              </Badge>
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-background/45 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <CalendarDays className="h-4 w-4" />
+                  Competência
+                </div>
+                <h3 className="mt-1 font-display text-lg font-semibold">
+                  {formatMonthLabel(selectedExpenseMonth)}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Comissões com vencimento no mês selecionado. Comissões pagas reduzem o caixa
+                  automaticamente.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="outline" className="border-border/60">
+                  {formatBRL(selectedMonthCommissionsTotal)} no mês
+                </Badge>
+                <MonthSelector
+                  month={selectedExpenseMonth}
+                  onMonthChange={setSelectedExpenseMonth}
+                />
+              </div>
             </div>
             <div className="overflow-hidden rounded-lg border border-border/60">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
                     <TableHead>Vencimento</TableHead>
+                    <TableHead>Pagamento</TableHead>
                     <TableHead>Vendedor</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Serviço</TableHead>
@@ -1606,11 +1737,15 @@ function Financial() {
                     ) ?? {
                       name: entry.seller,
                     };
+                    const paidAmount = getCommissionPaidAmount(entry);
 
                     return (
                       <TableRow key={entry.id} className="hover:bg-muted/30">
                         <TableCell className="text-muted-foreground">
                           {formatLocalDateBR(entry.dueDate)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {paidAmount > 0 ? formatLocalDateBR(entry.paidAt ?? entry.dueDate) : "-"}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -1661,7 +1796,7 @@ function Financial() {
                   {filteredCommissions.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={8}
+                        colSpan={9}
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nenhuma comissão encontrada.
@@ -1674,21 +1809,35 @@ function Financial() {
           </TabsContent>
 
           <TabsContent value="custos-servicos" className="mt-0">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">
-                Custos cadastrados em Serviços são aplicados automaticamente por venda. Se a venda
-                já teve recebimento, o custo entra como realizado; caso contrário, entra como
-                previsto.
-              </p>
-              <Badge variant="outline" className="border-border/60">
-                {formatBRL(pendingServiceCosts)} previstos
-              </Badge>
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-background/45 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <CalendarDays className="h-4 w-4" />
+                  Competência
+                </div>
+                <h3 className="mt-1 font-display text-lg font-semibold">
+                  {formatMonthLabel(selectedExpenseMonth)}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Custos de serviços vinculados às vendas do mês selecionado.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="outline" className="border-border/60">
+                  {formatBRL(selectedMonthServiceCostsTotal)} no mês
+                </Badge>
+                <MonthSelector
+                  month={selectedExpenseMonth}
+                  onMonthChange={setSelectedExpenseMonth}
+                />
+              </div>
             </div>
             <div className="overflow-hidden rounded-lg border border-border/60">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
                     <TableHead>Data</TableHead>
+                    <TableHead>Realização</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Serviço</TableHead>
                     <TableHead>Vendedor</TableHead>
@@ -1709,6 +1858,9 @@ function Financial() {
                       <TableRow key={entry.id} className="hover:bg-muted/30">
                         <TableCell className="text-muted-foreground">
                           {formatLocalDateBR(entry.date)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {entry.status === "realizado" ? formatLocalDateBR(entry.date) : "-"}
                         </TableCell>
                         <TableCell className="font-medium">{entry.client}</TableCell>
                         <TableCell>{entry.service}</TableCell>
@@ -1737,7 +1889,7 @@ function Financial() {
                   {filteredServiceCosts.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={7}
+                        colSpan={8}
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nenhum custo de serviço encontrado.
@@ -1818,13 +1970,36 @@ function Financial() {
           </TabsContent>
 
           <TabsContent value="banco" className="mt-0">
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-background/45 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <CalendarDays className="h-4 w-4" />
+                  Competência
+                </div>
+                <h3 className="mt-1 font-display text-lg font-semibold">
+                  {formatMonthLabel(selectedExpenseMonth)}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Movimentações bancárias do mês selecionado.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="outline" className="border-border/60">
+                  Impacto do mês: {formatBRL(selectedMonthBankImpact)}
+                </Badge>
+                <MonthSelector
+                  month={selectedExpenseMonth}
+                  onMonthChange={setSelectedExpenseMonth}
+                />
+              </div>
+            </div>
             <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Card className="border-border/60 bg-background/40 p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Entradas realizadas
                 </p>
                 <p className="mt-2 font-display text-2xl font-bold text-success">
-                  {formatBRL(bankInflows)}
+                  {formatBRL(selectedMonthBankInflows)}
                 </p>
               </Card>
               <Card className="border-border/60 bg-background/40 p-4">
@@ -1832,7 +2007,7 @@ function Financial() {
                   Saídas realizadas
                 </p>
                 <p className="mt-2 font-display text-2xl font-bold text-destructive">
-                  {formatBRL(bankOutflows)}
+                  {formatBRL(selectedMonthBankOutflows)}
                 </p>
               </Card>
               <Card className="border-border/60 bg-background/40 p-4">
@@ -1840,7 +2015,7 @@ function Financial() {
                   Entradas agendadas
                 </p>
                 <p className="mt-2 font-display text-2xl font-bold text-info">
-                  {formatBRL(scheduledBankInflows)}
+                  {formatBRL(selectedMonthScheduledBankInflows)}
                 </p>
               </Card>
               <Card className="border-border/60 bg-background/40 p-4">
@@ -1848,7 +2023,7 @@ function Financial() {
                   Saídas agendadas
                 </p>
                 <p className="mt-2 font-display text-2xl font-bold text-warning">
-                  {formatBRL(scheduledBankOutflows)}
+                  {formatBRL(selectedMonthScheduledBankOutflows)}
                 </p>
               </Card>
             </div>
@@ -1970,6 +2145,24 @@ function Financial() {
           </TabsContent>
 
           <TabsContent value="historico" className="mt-0">
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-background/45 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <CalendarDays className="h-4 w-4" />
+                  Competência
+                </div>
+                <h3 className="mt-1 font-display text-lg font-semibold">
+                  {formatMonthLabel(selectedExpenseMonth)}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Pagamentos e recebimentos realizados no mês selecionado.
+                </p>
+              </div>
+              <MonthSelector
+                month={selectedExpenseMonth}
+                onMonthChange={setSelectedExpenseMonth}
+              />
+            </div>
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
               <Card className="border-border/60 bg-background/40 p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
