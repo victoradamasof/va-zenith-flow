@@ -64,6 +64,7 @@ import {
   calculateCommissionEntries,
   calculatePayableCommissions,
   commissionPaymentsKey,
+  getCommissionPaidAmount,
   type CommissionAdjustment,
   type CommissionPayment,
 } from "@/lib/commissions";
@@ -135,6 +136,7 @@ const bankStatusLabels: Record<BankTransactionStatus, string> = {
 
 type Expense = (typeof initialExpenses)[number] & {
   paidAmount?: number;
+  paidAt?: string;
   notes?: string;
   recurringSourceId?: string;
 };
@@ -144,6 +146,17 @@ type MonthlyExpenseRow = Expense & {
   isProjectedRecurring?: boolean;
 };
 type Collaborator = (typeof initialSellers)[number] & { role?: string; photoUrl?: string };
+type PaymentHistoryEntry = {
+  id: string;
+  date: string;
+  type: string;
+  direction: "entrada" | "saida";
+  description: string;
+  category: string;
+  amount: number;
+  status: string;
+  notes?: string;
+};
 
 const emptyExpenseForm = {
   date: todayLocalISODate(),
@@ -230,6 +243,11 @@ function buildMonthlyExpenseRows(expenses: Expense[], selectedMonth: string): Mo
     const dateDiff = a.date.localeCompare(b.date);
     return dateDiff || a.desc.localeCompare(b.desc, "pt-BR");
   });
+}
+
+function getPaymentHistoryStatus(paid: number, total: number, fallback = "Pago") {
+  if (paid > 0 && paid < total) return "Parcial";
+  return fallback;
 }
 
 function Financial() {
@@ -451,6 +469,169 @@ function Financial() {
   const selectedMonthRecurringCount = monthlyExpenses.filter(
     (expense) => expense.recurring || expense.recurringSourceId,
   ).length;
+  const paymentHistory = useMemo<PaymentHistoryEntry[]>(() => {
+    const adjustmentById = new Map(
+      commissionAdjustments.map((adjustment) => [adjustment.id, adjustment]),
+    );
+    const saleIdsWithReceivablesForHistory = new Set(
+      receivables.map((receivable) => receivable.sourceId).filter(Boolean),
+    );
+
+    const expensePayments = expenses.flatMap((expense) => {
+      const paidAmount = calculateExpensePaidAmount(expense);
+      if (paidAmount <= 0) return [];
+
+      return [
+        {
+          id: `expense:${expense.id}`,
+          date: expense.paidAt ?? expense.date,
+          type: "Despesa",
+          direction: "saida" as const,
+          description: expense.desc,
+          category: expense.category,
+          amount: paidAmount,
+          status: getPaymentHistoryStatus(paidAmount, expense.value),
+          notes: expense.notes,
+        },
+      ];
+    });
+
+    const commissionPaymentsHistory = commissionEntries.flatMap((entry) => {
+      const paidAmount = getCommissionPaidAmount(entry);
+      if (paidAmount <= 0) return [];
+      const adjustment = adjustmentById.get(entry.id);
+
+      return [
+        {
+          id: `commission:${entry.id}`,
+          date: entry.paidAt ?? adjustment?.updatedAt ?? entry.dueDate,
+          type: "Comissão",
+          direction: "saida" as const,
+          description: `${entry.seller} - ${entry.client}`,
+          category: entry.label,
+          amount: paidAmount,
+          status: getPaymentHistoryStatus(paidAmount, entry.amount, "Paga"),
+          notes: adjustment?.description ?? entry.triggerLabel,
+        },
+      ];
+    });
+
+    const receivablePayments = receivables.flatMap((receivable) => {
+      if (receivable.status !== "recebido") return [];
+
+      return [
+        {
+          id: `receivable:${receivable.id}`,
+          date: receivable.receivedAt ?? receivable.dueDate,
+          type: "Receita",
+          direction: "entrada" as const,
+          description: `${receivable.client} - ${receivable.label}`,
+          category: receivable.service,
+          amount: receivable.amount,
+          status: "Recebido",
+          notes: `Vendedor: ${receivable.seller}`,
+        },
+      ];
+    });
+
+    const directSalePayments = sales.flatMap((sale) => {
+      if (sale.status !== "pago" || saleIdsWithReceivablesForHistory.has(sale.id)) return [];
+
+      return [
+        {
+          id: `sale:${sale.id}`,
+          date: sale.date,
+          type: "Venda",
+          direction: "entrada" as const,
+          description: sale.client,
+          category: sale.service,
+          amount: sale.value,
+          status: "Recebido",
+          notes: `Vendedor: ${sale.seller}`,
+        },
+      ];
+    });
+
+    const serviceCostPayments = serviceCostEntries.flatMap((entry) => {
+      if (entry.status !== "realizado") return [];
+
+      return [
+        {
+          id: `service-cost:${entry.id}`,
+          date: entry.date,
+          type: "Custo do serviço",
+          direction: "saida" as const,
+          description: `${entry.service} - ${entry.client}`,
+          category: entry.seller,
+          amount: entry.amount,
+          status: "Realizado",
+          notes: `Venda: ${formatBRL(entry.saleValue)}`,
+        },
+      ];
+    });
+
+    const bankPayments = bankTransactions.flatMap((transaction) => {
+      if (transaction.status !== "realizado") return [];
+
+      return [
+        {
+          id: `bank:${transaction.id}`,
+          date: transaction.date,
+          type: transaction.type === "entrada" ? "Banco - entrada" : "Banco - saída",
+          direction: transaction.type,
+          description: transaction.description,
+          category: transaction.category,
+          amount: transaction.amount,
+          status: "Realizado",
+          notes: transaction.notes ?? transaction.counterparty,
+        },
+      ];
+    });
+
+    return [
+      ...expensePayments,
+      ...commissionPaymentsHistory,
+      ...receivablePayments,
+      ...directSalePayments,
+      ...serviceCostPayments,
+      ...bankPayments,
+    ].sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      return dateDiff || a.description.localeCompare(b.description, "pt-BR");
+    });
+  }, [
+    bankTransactions,
+    commissionAdjustments,
+    commissionEntries,
+    expenses,
+    receivables,
+    sales,
+    serviceCostEntries,
+  ]);
+  const filteredPaymentHistory = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
+    if (!normalizedQuery) return paymentHistory;
+
+    return paymentHistory.filter((entry) =>
+      [
+        entry.date,
+        entry.type,
+        entry.description,
+        entry.category,
+        entry.status,
+        entry.notes ?? "",
+      ]
+        .join(" ")
+        .toLocaleLowerCase("pt-BR")
+        .includes(normalizedQuery),
+    );
+  }, [paymentHistory, query]);
+  const paymentHistoryInflow = filteredPaymentHistory
+    .filter((entry) => entry.direction === "entrada")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const paymentHistoryOutflow = filteredPaymentHistory
+    .filter((entry) => entry.direction === "saida")
+    .reduce((sum, entry) => sum + entry.amount, 0);
 
   useEffect(() => {
     setCashForm(formatCurrencyInput(currentCash));
@@ -548,6 +729,7 @@ function Financial() {
       category,
       value,
       paidAmount: paidAmount > 0 ? paidAmount : undefined,
+      paidAt: paidAmount > 0 ? expenses.find((item) => item.id === editingExpenseId)?.paidAt ?? todayLocalISODate() : undefined,
       status,
       recurring: editingRecurringSourceId ? false : form.recurring === "true",
       recurringSourceId: editingRecurringSourceId ?? undefined,
@@ -573,6 +755,7 @@ function Financial() {
       category: expense.category,
       value: expense.value,
       paidAmount,
+      paidAt: paidAmount > 0 ? todayLocalISODate() : undefined,
       status,
       recurring: false,
       recurringSourceId: expense.sourceId,
@@ -596,9 +779,11 @@ function Financial() {
     setExpenses((current) =>
       current.map((expense) => {
         if (expense.id !== id) return expense;
-        if (status === "pago") return { ...expense, status, paidAmount: expense.value };
+        if (status === "pago") {
+          return { ...expense, status, paidAmount: expense.value, paidAt: todayLocalISODate() };
+        }
         if (status === "pendente" || status === "atrasado") {
-          return { ...expense, status, paidAmount: undefined };
+          return { ...expense, status, paidAmount: undefined, paidAt: undefined };
         }
         return { ...expense, status };
       }),
@@ -633,7 +818,13 @@ function Financial() {
     const target = receivables.find((receivable) => receivable.id === id);
     if (!target) return;
     const nextReceivables = receivables.map((receivable) =>
-      receivable.id === id ? { ...receivable, status } : receivable,
+      receivable.id === id
+        ? {
+            ...receivable,
+            status,
+            receivedAt: status === "recebido" ? receivable.receivedAt ?? todayLocalISODate() : undefined,
+          }
+        : receivable,
     );
     setReceivables(nextReceivables);
 
@@ -737,6 +928,16 @@ function Financial() {
         "",
         transaction.status,
         transaction.notes ?? "",
+      ]),
+      ...paymentHistory.map((entry) => [
+        `Histórico - ${entry.direction === "entrada" ? "entrada" : "saída"}`,
+        entry.date,
+        entry.description,
+        entry.category,
+        String(entry.amount),
+        String(entry.amount),
+        entry.status,
+        entry.notes ?? "",
       ]),
     ];
     const csv = rows
@@ -1010,6 +1211,7 @@ function Financial() {
               <TabsTrigger value="custos-servicos">Custos dos serviços</TabsTrigger>
               <TabsTrigger value="caixa">Caixa</TabsTrigger>
               <TabsTrigger value="banco">Banco/C6</TabsTrigger>
+              <TabsTrigger value="historico">Histórico</TabsTrigger>
               <TabsTrigger value="categorias">Categorias</TabsTrigger>
             </TabsList>
             <div className="flex items-center gap-2">
@@ -1759,6 +1961,114 @@ function Financial() {
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nenhuma movimentação bancária encontrada.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="historico" className="mt-0">
+            <div className="mb-4 grid gap-3 sm:grid-cols-3">
+              <Card className="border-border/60 bg-background/40 p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Registros pagos
+                </p>
+                <p className="mt-2 font-display text-2xl font-bold">
+                  {filteredPaymentHistory.length}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Despesas, comissões, receitas, banco e custos realizados.
+                </p>
+              </Card>
+              <Card className="border-border/60 bg-success/10 p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Entradas no histórico
+                </p>
+                <p className="mt-2 font-display text-2xl font-bold text-success">
+                  {formatBRL(paymentHistoryInflow)}
+                </p>
+              </Card>
+              <Card className="border-border/60 bg-destructive/10 p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Saídas no histórico
+                </p>
+                <p className="mt-2 font-display text-2xl font-bold text-destructive">
+                  {formatBRL(paymentHistoryOutflow)}
+                </p>
+              </Card>
+            </div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Linha do tempo de pagamentos e recebimentos já realizados. Lançamentos antigos sem
+                data de pagamento usam a data do próprio registro como referência.
+              </p>
+              <Badge variant="outline" className="border-border/60">
+                Saldo do filtro: {formatBRL(paymentHistoryInflow - paymentHistoryOutflow)}
+              </Badge>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border/60">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead>Data do pagamento</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead>Categoria/Origem</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredPaymentHistory.map((entry) => (
+                    <TableRow key={entry.id} className="hover:bg-muted/30">
+                      <TableCell className="text-muted-foreground">
+                        {formatLocalDateBR(entry.date)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            entry.direction === "entrada"
+                              ? "border-success/30 text-success"
+                              : "border-destructive/30 text-destructive"
+                          }
+                        >
+                          {entry.type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">{entry.description}</div>
+                        {entry.notes && (
+                          <div className="mt-1 max-w-md text-xs text-muted-foreground">
+                            {entry.notes}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{entry.category}</TableCell>
+                      <TableCell>
+                        <Badge className={`${statusBadge(entry.status.toLowerCase())}`}>
+                          {entry.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell
+                        className={`text-right font-medium tabular-nums ${
+                          entry.direction === "entrada" ? "text-success" : "text-destructive"
+                        }`}
+                      >
+                        {entry.direction === "entrada" ? "+" : "-"}
+                        {formatBRL(entry.amount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredPaymentHistory.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={6}
+                        className="py-8 text-center text-sm text-muted-foreground"
+                      >
+                        Nenhum pagamento encontrado para a busca atual.
                       </TableCell>
                     </TableRow>
                   )}

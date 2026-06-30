@@ -19,6 +19,7 @@ export type Receivable = {
   method: PaymentMethod;
   label: string;
   status: "recebido" | "previsto";
+  receivedAt?: string;
 };
 
 export const paymentMethods = [
