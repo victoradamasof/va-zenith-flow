@@ -37,6 +37,9 @@ import {
   ArrowUpCircle,
   Wallet,
   AlertCircle,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Plus,
   Search,
   Download,
@@ -77,7 +80,12 @@ import {
   cashBalanceKey,
   defaultCashBalance,
 } from "@/lib/cash-data";
-import { formatLocalDateBR, todayLocalISODate } from "@/lib/date-utils";
+import {
+  formatLocalDateBR,
+  parseLocalDate,
+  todayLocalISODate,
+  toLocalISODate,
+} from "@/lib/date-utils";
 import {
   bankMethodLabels,
   bankTransactionsKey,
@@ -128,6 +136,12 @@ const bankStatusLabels: Record<BankTransactionStatus, string> = {
 type Expense = (typeof initialExpenses)[number] & {
   paidAmount?: number;
   notes?: string;
+  recurringSourceId?: string;
+};
+type MonthlyExpenseRow = Expense & {
+  displayId: string;
+  sourceId: string;
+  isProjectedRecurring?: boolean;
 };
 type Collaborator = (typeof initialSellers)[number] & { role?: string; photoUrl?: string };
 
@@ -148,6 +162,75 @@ const recurringLabels: Record<string, string> = {
   true: "Recorrente",
   false: "Avulsa",
 };
+
+function getMonthKey(date: string) {
+  return date.slice(0, 7);
+}
+
+function getMonthDate(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Date(year, month - 1, 1, 12);
+}
+
+function shiftMonthKey(monthKey: string, offset: number) {
+  const date = getMonthDate(monthKey);
+  date.setMonth(date.getMonth() + offset);
+  return toLocalISODate(date).slice(0, 7);
+}
+
+function formatMonthLabel(monthKey: string) {
+  const label = getMonthDate(monthKey).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+
+  return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
+}
+
+function dateInSelectedMonth(originalDate: string, monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const original = parseLocalDate(originalDate);
+  const lastDay = new Date(year, month, 0, 12).getDate();
+  const day = Math.min(original.getDate(), lastDay);
+  return toLocalISODate(new Date(year, month - 1, day, 12));
+}
+
+function buildMonthlyExpenseRows(expenses: Expense[], selectedMonth: string): MonthlyExpenseRow[] {
+  const concreteRows = expenses
+    .filter((expense) => getMonthKey(expense.date) === selectedMonth)
+    .map((expense) => ({
+      ...expense,
+      displayId: expense.id,
+      sourceId: expense.recurringSourceId ?? expense.id,
+    }));
+
+  const concreteRecurringSourceIds = new Set(
+    concreteRows.map((expense) => expense.recurringSourceId).filter(Boolean),
+  );
+
+  const projectedRows = expenses
+    .filter((expense) => {
+      if (!expense.recurring || expense.recurringSourceId) return false;
+      const expenseMonth = getMonthKey(expense.date);
+      return expenseMonth < selectedMonth && !concreteRecurringSourceIds.has(expense.id);
+    })
+    .map((expense) => ({
+      ...expense,
+      id: `${expense.id}:${selectedMonth}`,
+      displayId: `${expense.id}:${selectedMonth}`,
+      sourceId: expense.id,
+      recurringSourceId: expense.id,
+      date: dateInSelectedMonth(expense.date, selectedMonth),
+      status: "pendente",
+      paidAmount: undefined,
+      isProjectedRecurring: true,
+    }));
+
+  return [...concreteRows, ...projectedRows].sort((a, b) => {
+    const dateDiff = a.date.localeCompare(b.date);
+    return dateDiff || a.desc.localeCompare(b.desc, "pt-BR");
+  });
+}
 
 function Financial() {
   const [sales, setSales] = usePersistentState("va-manager:sales", initialSales);
@@ -181,6 +264,8 @@ function Financial() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [editingRecurringSourceId, setEditingRecurringSourceId] = useState<string | null>(null);
+  const [selectedExpenseMonth, setSelectedExpenseMonth] = useState(todayLocalISODate().slice(0, 7));
   const [form, setForm] = useState(emptyExpenseForm);
   const [cashForm, setCashForm] = useState(formatCurrencyInput(defaultCashBalance));
   const smartExpenseSuggestion = useMemo(
@@ -195,24 +280,29 @@ function Financial() {
     [form.category, form.desc, form.value],
   );
 
+  const monthlyExpenses = useMemo(
+    () => buildMonthlyExpenseRows(expenses, selectedExpenseMonth),
+    [expenses, selectedExpenseMonth],
+  );
+
   const filteredExpenses = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return expenses;
+    if (!normalizedQuery) return monthlyExpenses;
 
-    return expenses.filter((expense) =>
+    return monthlyExpenses.filter((expense) =>
       [
         expense.date,
         expense.desc,
         expense.category,
         expense.status,
-        expense.recurring ? "recorrente" : "avulsa",
+        expense.recurring || expense.recurringSourceId ? "recorrente" : "avulsa",
         expense.notes ?? "",
       ]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [expenses, query]);
+  }, [monthlyExpenses, query]);
 
   const filteredSales = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -349,6 +439,18 @@ function Financial() {
       .reduce((sum, sale) => sum + sale.value, 0) +
     scheduledBankInflows;
   const projectedCash = currentCash + aReceber - aPagar;
+  const selectedMonthTotal = monthlyExpenses.reduce((sum, expense) => sum + expense.value, 0);
+  const selectedMonthPaid = monthlyExpenses.reduce(
+    (sum, expense) => sum + calculateExpensePaidAmount(expense),
+    0,
+  );
+  const selectedMonthPending = monthlyExpenses.reduce(
+    (sum, expense) => sum + calculateExpenseRemainingAmount(expense),
+    0,
+  );
+  const selectedMonthRecurringCount = monthlyExpenses.filter(
+    (expense) => expense.recurring || expense.recurringSourceId,
+  ).length;
 
   useEffect(() => {
     setCashForm(formatCurrencyInput(currentCash));
@@ -395,12 +497,14 @@ function Financial() {
 
   const openCreateExpense = () => {
     setEditingExpenseId(null);
+    setEditingRecurringSourceId(null);
     setForm(emptyExpenseForm);
     setOpen(true);
   };
 
-  const openEditExpense = (expense: Expense) => {
-    setEditingExpenseId(expense.id);
+  const openEditExpense = (expense: MonthlyExpenseRow) => {
+    setEditingExpenseId(expense.isProjectedRecurring ? null : expense.id);
+    setEditingRecurringSourceId(expense.isProjectedRecurring ? expense.sourceId : expense.recurringSourceId ?? null);
     setForm({
       date: expense.date,
       desc: expense.desc,
@@ -408,7 +512,7 @@ function Financial() {
       value: formatCurrencyInput(expense.value),
       paidAmount: expense.paidAmount ? formatCurrencyInput(expense.paidAmount) : "",
       status: expense.status,
-      recurring: String(expense.recurring),
+      recurring: String(expense.isProjectedRecurring ? false : expense.recurring),
       notes: expense.notes ?? "",
     });
     setOpen(true);
@@ -417,6 +521,7 @@ function Financial() {
   const closeDialog = () => {
     setOpen(false);
     setEditingExpenseId(null);
+    setEditingRecurringSourceId(null);
     setForm(emptyExpenseForm);
   };
 
@@ -444,7 +549,8 @@ function Financial() {
       value,
       paidAmount: paidAmount > 0 ? paidAmount : undefined,
       status,
-      recurring: form.recurring === "true",
+      recurring: editingRecurringSourceId ? false : form.recurring === "true",
+      recurringSourceId: editingRecurringSourceId ?? undefined,
       notes: form.notes.trim() || undefined,
     };
 
@@ -458,7 +564,35 @@ function Financial() {
     toast.success(editingExpenseId ? "Despesa atualizada." : "Despesa cadastrada.");
   };
 
-  const updateExpenseStatus = (id: string, status: string) => {
+  const materializeRecurringExpense = (expense: MonthlyExpenseRow, status: string) => {
+    const paidAmount = status === "pago" ? expense.value : undefined;
+    const nextExpense: Expense = {
+      id: `e-${Date.now()}-${expense.sourceId}`,
+      date: expense.date,
+      desc: expense.desc,
+      category: expense.category,
+      value: expense.value,
+      paidAmount,
+      status,
+      recurring: false,
+      recurringSourceId: expense.sourceId,
+      notes: expense.notes,
+    };
+    setExpenses((current) => [nextExpense, ...current]);
+  };
+
+  const updateExpenseStatus = (expenseOrId: MonthlyExpenseRow | string, status: string) => {
+    if (typeof expenseOrId !== "string" && expenseOrId.isProjectedRecurring) {
+      if (status === "pendente") {
+        toast.info("Essa despesa recorrente já está pendente neste mês.");
+        return;
+      }
+      materializeRecurringExpense(expenseOrId, status);
+      toast.success(`Despesa recorrente de ${formatMonthLabel(selectedExpenseMonth)} marcada como ${status}.`);
+      return;
+    }
+
+    const id = typeof expenseOrId === "string" ? expenseOrId : expenseOrId.id;
     setExpenses((current) =>
       current.map((expense) => {
         if (expense.id !== id) return expense;
@@ -472,7 +606,12 @@ function Financial() {
     toast.success(`Despesa marcada como ${status}.`);
   };
 
-  const removeExpense = (id: string) => {
+  const removeExpense = (expense: MonthlyExpenseRow) => {
+    if (expense.isProjectedRecurring) {
+      toast.info("Essa é uma recorrência projetada. Exclua ou edite a despesa original.");
+      return;
+    }
+    const id = expense.id;
     setExpenses((current) => current.filter((expense) => expense.id !== id));
     toast.success("Despesa excluída.");
   };
@@ -897,6 +1036,83 @@ function Financial() {
           </div>
 
           <TabsContent value="despesas" className="mt-0">
+            <div className="mb-4 rounded-xl border border-border/60 bg-background/45 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    <CalendarDays className="h-4 w-4" />
+                    Competência
+                  </div>
+                  <h3 className="mt-1 font-display text-xl font-semibold">
+                    {formatMonthLabel(selectedExpenseMonth)}
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Avulsas do mês selecionado e recorrentes desde o mês de origem.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setSelectedExpenseMonth((month) => shiftMonthKey(month, -1))}
+                    aria-label="Mês anterior"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Input
+                    type="month"
+                    value={selectedExpenseMonth}
+                    onChange={(event) => {
+                      if (event.target.value) setSelectedExpenseMonth(event.target.value);
+                    }}
+                    className="h-9 w-40"
+                    aria-label="Selecionar mês"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setSelectedExpenseMonth((month) => shiftMonthKey(month, 1))}
+                    aria-label="Próximo mês"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedExpenseMonth(todayLocalISODate().slice(0, 7))}
+                  >
+                    Mês atual
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border border-border/50 bg-card/45 p-3">
+                  <p className="text-xs text-muted-foreground">Total do mês</p>
+                  <p className="mt-1 font-semibold tabular-nums">{formatBRL(selectedMonthTotal)}</p>
+                </div>
+                <div className="rounded-lg border border-success/20 bg-success/10 p-3">
+                  <p className="text-xs text-muted-foreground">Pago no mês</p>
+                  <p className="mt-1 font-semibold text-success tabular-nums">
+                    {formatBRL(selectedMonthPaid)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-warning/20 bg-warning/10 p-3">
+                  <p className="text-xs text-muted-foreground">Pendente no mês</p>
+                  <p className="mt-1 font-semibold text-warning tabular-nums">
+                    {formatBRL(selectedMonthPending)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-info/20 bg-info/10 p-3">
+                  <p className="text-xs text-muted-foreground">Recorrentes visíveis</p>
+                  <p className="mt-1 font-semibold text-info tabular-nums">
+                    {selectedMonthRecurringCount}
+                  </p>
+                </div>
+              </div>
+            </div>
             <div className="overflow-hidden rounded-lg border border-border/60">
               <Table>
                 <TableHeader>
@@ -916,9 +1132,14 @@ function Financial() {
                     const remainingAmount = calculateExpenseRemainingAmount(expense);
 
                     return (
-                    <TableRow key={expense.id} className="hover:bg-muted/30">
+                    <TableRow key={expense.displayId} className="hover:bg-muted/30">
                       <TableCell className="font-medium">
                         <div>{expense.desc}</div>
+                        {expense.isProjectedRecurring && (
+                          <div className="mt-1 text-xs font-normal text-info">
+                            Recorrência projetada para este mês
+                          </div>
+                        )}
                         {expense.notes && (
                           <div className="mt-1 max-w-sm text-xs font-normal text-muted-foreground">
                             {expense.notes}
@@ -934,7 +1155,7 @@ function Financial() {
                         {formatLocalDateBR(expense.date)}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {expense.recurring ? "Recorrente" : "Avulsa"}
+                        {expense.recurring || expense.recurringSourceId ? "Recorrente" : "Avulsa"}
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums">
                         <div>{formatBRL(expense.value)}</div>
@@ -969,21 +1190,21 @@ function Financial() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => updateExpenseStatus(expense.id, "pago")}
+                            onClick={() => updateExpenseStatus(expense, "pago")}
                           >
                             Pago
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => updateExpenseStatus(expense.id, "pendente")}
+                            onClick={() => updateExpenseStatus(expense, "pendente")}
                           >
                             Pendente
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => removeExpense(expense.id)}
+                            onClick={() => removeExpense(expense)}
                           >
                             Excluir
                           </Button>
