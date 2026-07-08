@@ -46,6 +46,8 @@ import {
   Search,
   RotateCcw,
   Wallet,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   clients as initialClients,
@@ -90,6 +92,7 @@ const statusLabel = (status: string) => (status === "parcial" ? "pago parcialmen
 
 const leadOrigins = ["Trafego pago", "Trafego organico", "Indicação"];
 const installmentOptions = Array.from({ length: 12 }, (_, index) => String(index + 1));
+const allSellersFilter = "__all_sellers__";
 const paymentMethodOptions: Array<{ value: PaymentMethod; label: string }> = [
   { value: "avista", label: "À vista" },
   { value: "prazo_pix", label: "Prazo Pix" },
@@ -105,6 +108,83 @@ function splitCommissionByEntry(totalCommission: number, saleTotal: number, entr
     pending: Math.max(Number((totalCommission - entry).toFixed(2)), 0),
   };
 }
+
+function getMonthKey(date: string) {
+  return date.slice(0, 7);
+}
+
+function getMonthDate(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Date(year, month - 1, 1, 12);
+}
+
+function shiftMonthKey(monthKey: string, offset: number) {
+  const date = getMonthDate(monthKey);
+  date.setMonth(date.getMonth() + offset);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(monthKey: string) {
+  const label = getMonthDate(monthKey).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+
+  return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
+}
+
+function isDateInMonth(date: string | undefined, monthKey: string) {
+  return Boolean(date) && getMonthKey(date ?? "") === monthKey;
+}
+
+function SalesMonthSelector({
+  month,
+  onMonthChange,
+}: {
+  month: string;
+  onMonthChange: (month: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={() => onMonthChange(shiftMonthKey(month, -1))}
+        aria-label="Mês anterior"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <Input
+        type="month"
+        value={month}
+        onChange={(event) => {
+          if (event.target.value) onMonthChange(event.target.value);
+        }}
+        className="h-9 w-40"
+        aria-label="Selecionar mês"
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={() => onMonthChange(shiftMonthKey(month, 1))}
+        aria-label="Próximo mês"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => onMonthChange(todayLocalISODate().slice(0, 7))}
+      >
+        Mês atual
+      </Button>
+    </div>
+  );
+}
+
 type Sale = (typeof initialSales)[number] & {
   paymentMethod?: PaymentMethod;
   installments?: number;
@@ -148,6 +228,8 @@ function Sales() {
   const [collaborators] = usePersistentState<Collaborator[]>("va-manager:collaborators", sellers);
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
   const [query, setQuery] = useState("");
+  const [selectedSalesMonth, setSelectedSalesMonth] = useState(todayLocalISODate().slice(0, 7));
+  const [selectedSeller, setSelectedSeller] = useState(allSellersFilter);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptySaleForm);
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -164,25 +246,66 @@ function Sales() {
   }, []);
 
   const canManageAllSales = isAdmin(session);
+  const serviceOptions = useMemo(
+    () => services.filter((service) => service.status !== "inativo"),
+    [services],
+  );
+  const collaboratorOptions = useMemo(
+    () => collaborators.filter((collaborator) => collaborator.name.trim()),
+    [collaborators],
+  );
   const salesScope = useMemo(
     () =>
       canManageAllSales ? sales : sales.filter((sale) => isOwnedBySession(sale.seller, session)),
     [canManageAllSales, sales, session],
   );
+  const sellerFilterOptions = useMemo(() => {
+    const names = new Set<string>();
+
+    if (canManageAllSales) {
+      collaboratorOptions.forEach((collaborator) => names.add(collaborator.name));
+    } else if (session?.name) {
+      names.add(session.name);
+    }
+
+    salesScope.forEach((sale) => {
+      if (sale.seller.trim()) names.add(sale.seller);
+    });
+
+    return [...names].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [canManageAllSales, collaboratorOptions, salesScope, session]);
+
+  useEffect(() => {
+    if (selectedSeller !== allSellersFilter && !sellerFilterOptions.includes(selectedSeller)) {
+      setSelectedSeller(allSellersFilter);
+    }
+  }, [selectedSeller, sellerFilterOptions]);
+
+  const selectedSales = useMemo(
+    () =>
+      salesScope.filter((sale) => {
+        const isSelectedMonth = isDateInMonth(sale.date, selectedSalesMonth);
+        const isSelectedSeller =
+          selectedSeller === allSellersFilter || sale.seller === selectedSeller;
+
+        return isSelectedMonth && isSelectedSeller;
+      }),
+    [salesScope, selectedSalesMonth, selectedSeller],
+  );
 
   const filteredSales = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return salesScope;
+    if (!normalizedQuery) return selectedSales;
 
-    return salesScope.filter((sale) =>
+    return selectedSales.filter((sale) =>
       [sale.date, sale.client, sale.service, sale.seller, sale.origin, sale.status]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [salesScope, query]);
+  }, [selectedSales, query]);
 
-  const saleIds = useMemo(() => new Set(salesScope.map((sale) => sale.id)), [salesScope]);
+  const saleIds = useMemo(() => new Set(selectedSales.map((sale) => sale.id)), [selectedSales]);
   const receivablesBySale = useMemo(
     () => receivables.filter((receivable) => saleIds.has(receivable.sourceId)),
     [receivables, saleIds],
@@ -191,8 +314,8 @@ function Sales() {
     () => new Set(receivablesBySale.map((receivable) => receivable.sourceId)),
     [receivablesBySale],
   );
-  const totalMes = salesScope.reduce((sum, sale) => sum + sale.value, 0);
-  const paidSales = salesScope.filter((sale) => sale.status === "pago");
+  const totalMes = selectedSales.reduce((sum, sale) => sum + sale.value, 0);
+  const paidSales = selectedSales.filter((sale) => sale.status === "pago");
   const paidRevenue =
     receivablesBySale
       .filter((receivable) => receivable.status === "recebido")
@@ -203,16 +326,8 @@ function Sales() {
   const predictableRevenue = receivablesBySale
     .filter((receivable) => receivable.status === "previsto")
     .reduce((sum, receivable) => sum + receivable.amount, 0);
-  const averageTicket = salesScope.length ? Math.round(totalMes / salesScope.length) : 0;
+  const averageTicket = selectedSales.length ? totalMes / selectedSales.length : 0;
   const conversionRate = Math.min(100, Math.round((paidRevenue / Math.max(totalMes, 1)) * 100));
-  const serviceOptions = useMemo(
-    () => services.filter((service) => service.status !== "inativo"),
-    [services],
-  );
-  const collaboratorOptions = useMemo(
-    () => collaborators.filter((collaborator) => collaborator.name.trim()),
-    [collaborators],
-  );
   const currentSellerName = useMemo(() => {
     if (canManageAllSales) return "";
     return (
@@ -277,21 +392,21 @@ function Sales() {
 
   const serviceRanking = useMemo(() => {
     const totals = new Map<string, { name: string; sales: number; revenue: number }>();
-    for (const sale of salesScope) {
+    for (const sale of selectedSales) {
       const current = totals.get(sale.service) ?? { name: sale.service, sales: 0, revenue: 0 };
       current.sales += 1;
       current.revenue += sale.value;
       totals.set(sale.service, current);
     }
     return [...totals.values()].sort((a, b) => b.sales - a.sales);
-  }, [salesScope]);
+  }, [selectedSales]);
 
   const sellerRanking = useMemo(() => {
     const totals = new Map<
       string,
       { name: string; sales: number; revenue: number; avatar: string; photoUrl?: string }
     >();
-    for (const sale of salesScope) {
+    for (const sale of selectedSales) {
       const collaborator = collaboratorsByName.get(normalizeCollaboratorName(sale.seller));
       const avatar = collaborator?.avatar || collaboratorInitials(sale.seller);
       const current = totals.get(sale.seller) ?? {
@@ -308,7 +423,7 @@ function Sales() {
       totals.set(sale.seller, current);
     }
     return [...totals.values()].sort((a, b) => b.revenue - a.revenue);
-  }, [collaboratorsByName, salesScope]);
+  }, [collaboratorsByName, selectedSales]);
 
   const updateForm = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -684,7 +799,7 @@ function Sales() {
 
   const exportCsv = () => {
     const header = ["Data", "Cliente", "Serviço", "Vendedor", "Origem", "Valor", "Status"];
-    const rows = salesScope.map((sale) => [
+    const rows = selectedSales.map((sale) => [
       sale.date,
       sale.client,
       sale.service,
@@ -918,7 +1033,7 @@ function Sales() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <KpiCard
           label="Vendas registradas"
-          value={String(salesScope.length)}
+          value={String(selectedSales.length)}
           delta={22}
           icon={ShoppingCart}
           accent="primary"
@@ -975,7 +1090,7 @@ function Sales() {
                 {formatBRL(totalMes)}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Soma das vendas visíveis para este usuário.
+                Soma das vendas da competência e vendedor selecionados.
               </p>
             </div>
             <div className="rounded-xl border border-success/20 bg-success/10 p-4">
@@ -1007,7 +1122,7 @@ function Sales() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="border-border/60 bg-card/60 p-5">
           <h3 className="font-display text-base font-semibold">Melhor vendedor</h3>
-          <p className="text-xs text-muted-foreground">Base atual</p>
+          <p className="text-xs text-muted-foreground">{formatMonthLabel(selectedSalesMonth)}</p>
           <div className="mt-4 flex items-center gap-3">
             <CollaboratorAvatar
               person={sellerRanking[0]}
@@ -1023,7 +1138,7 @@ function Sales() {
         </Card>
         <Card className="border-border/60 bg-card/60 p-5">
           <h3 className="font-display text-base font-semibold">Serviço mais vendido</h3>
-          <p className="text-xs text-muted-foreground">Base atual</p>
+          <p className="text-xs text-muted-foreground">{formatMonthLabel(selectedSalesMonth)}</p>
           <div className="mt-4">
             <p className="font-medium">{serviceRanking[0]?.name ?? "Sem vendas"}</p>
             <p className="text-xs text-muted-foreground">{serviceRanking[0]?.sales ?? 0} vendas</p>
@@ -1045,16 +1160,37 @@ function Sales() {
       </div>
 
       <Card className="border-border/60 bg-card/60 p-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="font-display text-base font-semibold">Histórico recente</h3>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar venda..."
-              className="h-9 w-64 pl-8"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 className="font-display text-base font-semibold">Histórico recente</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatMonthLabel(selectedSalesMonth)} · {selectedSales.length} vendas no filtro
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <SalesMonthSelector month={selectedSalesMonth} onMonthChange={setSelectedSalesMonth} />
+            <Select value={selectedSeller} onValueChange={setSelectedSeller}>
+              <SelectTrigger className="h-9 w-52" aria-label="Selecionar vendedor">
+                <SelectValue placeholder="Todos os vendedores" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={allSellersFilter}>Todos os vendedores</SelectItem>
+                {sellerFilterOptions.map((seller) => (
+                  <SelectItem key={seller} value={seller}>
+                    {seller}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Buscar venda..."
+                className="h-9 w-64 pl-8"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
           </div>
         </div>
         <div className="overflow-hidden rounded-lg border border-border/60">
@@ -1142,7 +1278,7 @@ function Sales() {
               {filteredSales.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
-                    Nenhuma venda encontrada para a busca atual.
+                    Nenhuma venda encontrada para os filtros atuais.
                   </TableCell>
                 </TableRow>
               )}
