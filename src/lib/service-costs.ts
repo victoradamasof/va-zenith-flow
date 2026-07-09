@@ -22,6 +22,7 @@ type CostSale = {
   seller: string;
   status: string;
   value: number;
+  serviceCostAmount?: number;
 };
 
 type CostService = {
@@ -65,7 +66,7 @@ export function calculateServiceCostEntries({
 
   return sales
     .map((sale) => {
-      const amount = getServiceCost(services, sale.service);
+      const amount = Number(sale.serviceCostAmount ?? getServiceCost(services, sale.service));
       return {
         id: `${sale.id}:service-cost`,
         saleId: sale.id,

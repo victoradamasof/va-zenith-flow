@@ -194,6 +194,7 @@ type Sale = (typeof initialSales)[number] & {
   commissionEntryAmount?: number;
   commissionPendingAmount?: number;
   commissionAmount?: number;
+  serviceCostAmount?: number;
 };
 type Collaborator = (typeof sellers)[number] & { role?: string; photoUrl?: string };
 type Client = (typeof initialClients)[number] & {
@@ -219,6 +220,7 @@ const emptySaleForm = {
   commissionEntryAmount: "50,00",
   commissionPendingAmount: "50,00",
   commissionAmount: "100,00",
+  serviceCostAmount: "",
 };
 
 function Sales() {
@@ -359,6 +361,10 @@ function Sales() {
   const commissionEntryAmount = parseCurrencyInput(form.commissionEntryAmount);
   const commissionPendingAmount = parseCurrencyInput(form.commissionPendingAmount);
   const commissionAmount = parseCurrencyInput(form.commissionAmount);
+  const serviceCostAmount = parseCurrencyInput(form.serviceCostAmount);
+  const displayedServiceCostAmount = form.serviceCostAmount.trim()
+    ? serviceCostAmount
+    : Number(selectedService?.cost ?? 0);
   const currentPaymentPreview = useMemo(() => {
     const schedule = createReceivables({
       sourceId: "preview",
@@ -512,6 +518,13 @@ function Sales() {
     }));
   };
 
+  const normalizeServiceCostAmount = () => {
+    setForm((current) => ({
+      ...current,
+      serviceCostAmount: formatCurrencyInput(parseCurrencyInput(current.serviceCostAmount)),
+    }));
+  };
+
   const canManageSale = (sale: Sale | undefined) =>
     Boolean(sale && (canManageAllSales || isOwnedBySession(sale.seller, session)));
 
@@ -538,6 +551,8 @@ function Sales() {
           : "credito");
     const serviceDefaultCommission =
       serviceOptions.find((serviceItem) => serviceItem.name === sale.service)?.commission ?? 0;
+    const serviceDefaultCost =
+      serviceOptions.find((serviceItem) => serviceItem.name === sale.service)?.cost ?? 0;
     const savedTotalCommission =
       sale.commissionAmount ??
       sale.commissionEntryAmount ??
@@ -574,6 +589,7 @@ function Sales() {
             : (sale.commissionEntryAmount ?? splitDefault.entry) +
               (sale.commissionPendingAmount ?? splitDefault.pending)),
       ),
+      serviceCostAmount: formatCurrencyInput(sale.serviceCostAmount ?? serviceDefaultCost),
     });
     setOpen(true);
   };
@@ -636,6 +652,7 @@ function Sales() {
       ...current,
       service: serviceName,
       value: nextValue,
+      serviceCostAmount: formatCurrencyInput(Number(selectedService?.cost ?? 0)),
       ...(() => {
         const defaultCommission = Number(selectedService?.commission ?? 0);
         const split =
@@ -668,17 +685,26 @@ function Sales() {
 
   const selectClient = (clientName: string) => {
     const selectedClient = clientOptions.find((client) => client.name === clientName);
-    setForm((current) => ({
-      ...current,
-      client: clientName,
-      service: current.service || selectedClient?.service || current.service,
-      origin: current.origin || selectedClient?.origin || current.origin,
-      seller: current.seller || selectedClient?.seller || current.seller,
-      value:
-        (current.value === "0" || current.value.trim() === "") && selectedClient?.total
-          ? formatCurrencyInput(selectedClient.total)
-          : current.value,
-    }));
+    setForm((current) => {
+      const nextService = current.service || selectedClient?.service || current.service;
+      const selectedClientService = serviceOptions.find((service) => service.name === nextService);
+
+      return {
+        ...current,
+        client: clientName,
+        service: nextService,
+        origin: current.origin || selectedClient?.origin || current.origin,
+        seller: current.seller || selectedClient?.seller || current.seller,
+        value:
+          (current.value === "0" || current.value.trim() === "") && selectedClient?.total
+            ? formatCurrencyInput(selectedClient.total)
+            : current.value,
+        serviceCostAmount:
+          current.serviceCostAmount.trim() || !selectedClientService
+            ? current.serviceCostAmount
+            : formatCurrencyInput(Number(selectedClientService.cost ?? 0)),
+      };
+    });
   };
 
   const submitSale = (event: FormEvent<HTMLFormElement>) => {
@@ -707,6 +733,10 @@ function Sales() {
     const entryCommission = parseCurrencyInput(form.commissionEntryAmount);
     const pendingCommission = parseCurrencyInput(form.commissionPendingAmount);
     const singleCommission = parseCurrencyInput(form.commissionAmount);
+    const serviceDefaultCost = serviceOptions.find((item) => item.name === service)?.cost ?? 0;
+    const saleServiceCostAmount = form.serviceCostAmount.trim()
+      ? parseCurrencyInput(form.serviceCostAmount)
+      : Number(serviceDefaultCost);
     const value =
       method === "prazo_pix"
         ? Number((entryAmount + pendingAmount).toFixed(2))
@@ -751,6 +781,7 @@ function Sales() {
       commissionPendingAmount: method === "avista" ? undefined : pendingCommission,
       commissionAmount:
         method === "avista" ? singleCommission || entryCommission + pendingCommission : undefined,
+      serviceCostAmount: saleServiceCostAmount,
     };
 
     setSales((current) =>
@@ -1001,6 +1032,12 @@ function Sales() {
                         />
                       </>
                     )}
+                    <SaleField
+                      label="Custo desta venda"
+                      value={form.serviceCostAmount}
+                      onChange={(value) => updateForm("serviceCostAmount", value)}
+                      onBlur={normalizeServiceCostAmount}
+                    />
                   </div>
                   <div className="mt-4 rounded-lg border border-border/60 bg-background/40 p-3 text-sm text-muted-foreground">
                     <span className="font-medium text-foreground">Previsão de recebimento: </span>
@@ -1012,6 +1049,13 @@ function Sales() {
                         : `${formatBRL(commissionAmount)} ao liberar a venda`}
                       {selectedService?.commission ? (
                         <span> · padrão do serviço: {formatBRL(selectedService.commission)}</span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1">
+                      <span className="font-medium text-foreground">Custo operacional: </span>
+                      {formatBRL(displayedServiceCostAmount)} nesta venda
+                      {selectedService?.cost ? (
+                        <span> · padrão do serviço: {formatBRL(selectedService.cost)}</span>
                       ) : null}
                     </div>
                   </div>
