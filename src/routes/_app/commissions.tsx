@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import {
   BadgeDollarSign,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Download,
   Pencil,
@@ -27,6 +29,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -56,7 +65,7 @@ import {
 } from "@/lib/commissions";
 import { formatCurrencyInput, parseCurrencyInput } from "@/lib/currency";
 import { getAuthSession, type AuthSession } from "@/lib/auth";
-import { isAdmin, isOwnedBySession, normalizePermissionText } from "@/lib/permissions";
+import { isOwnedBySession, normalizePermissionText } from "@/lib/permissions";
 import { formatLocalDateBR, todayLocalISODate } from "@/lib/date-utils";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useSyncedReceivables } from "@/hooks/use-synced-receivables";
@@ -79,6 +88,83 @@ const statusClasses: Record<CommissionEntry["status"], string> = {
   a_pagar: "bg-warning/15 text-warning hover:bg-warning/15",
   prevista: "bg-info/15 text-info hover:bg-info/15",
 };
+const allSellersFilter = "__all_sellers__";
+
+function getMonthKey(date: string) {
+  return date.slice(0, 7);
+}
+
+function getMonthDate(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Date(year, month - 1, 1, 12);
+}
+
+function shiftMonthKey(monthKey: string, offset: number) {
+  const date = getMonthDate(monthKey);
+  date.setMonth(date.getMonth() + offset);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(monthKey: string) {
+  const label = getMonthDate(monthKey).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+
+  return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
+}
+
+function isDateInMonth(date: string | undefined, monthKey: string) {
+  return Boolean(date) && getMonthKey(date ?? "") === monthKey;
+}
+
+function CommissionMonthSelector({
+  month,
+  onMonthChange,
+}: {
+  month: string;
+  onMonthChange: (month: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={() => onMonthChange(shiftMonthKey(month, -1))}
+        aria-label="Mês anterior"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <Input
+        type="month"
+        value={month}
+        onChange={(event) => {
+          if (event.target.value) onMonthChange(event.target.value);
+        }}
+        className="h-9 w-40"
+        aria-label="Selecionar mês"
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={() => onMonthChange(shiftMonthKey(month, 1))}
+        aria-label="Próximo mês"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => onMonthChange(todayLocalISODate().slice(0, 7))}
+      >
+        Mês atual
+      </Button>
+    </div>
+  );
+}
 
 function hasFinancialAccess(session: AuthSession | null) {
   const role = normalizePermissionText(session?.role);
@@ -106,6 +192,10 @@ function Commissions() {
   const [receivables] = useSyncedReceivables({ sales });
   const [session, setSession] = useState<AuthSession | null>(null);
   const [query, setQuery] = useState("");
+  const [selectedCommissionMonth, setSelectedCommissionMonth] = useState(
+    todayLocalISODate().slice(0, 7),
+  );
+  const [selectedSeller, setSelectedSeller] = useState(allSellersFilter);
   const [editingEntry, setEditingEntry] = useState<CommissionEntry | null>(null);
   const [editForm, setEditForm] = useState({
     amount: "",
@@ -140,14 +230,55 @@ function Commissions() {
     [commissionAdjustments, commissionPayments, receivables, sales, services],
   );
 
-  const visibleEntries = useMemo(() => {
-    const scopedEntries = canViewAll
-      ? commissionEntries
-      : commissionEntries.filter((entry) => isOwnedBySession(entry.seller, session));
-    const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
-    if (!normalizedQuery) return scopedEntries;
+  const scopedEntries = useMemo(
+    () =>
+      canViewAll
+        ? commissionEntries
+        : commissionEntries.filter((entry) => isOwnedBySession(entry.seller, session)),
+    [canViewAll, commissionEntries, session],
+  );
 
-    return scopedEntries.filter((entry) =>
+  const sellerFilterOptions = useMemo(() => {
+    const names = new Set<string>();
+
+    if (canViewAll) {
+      collaborators.forEach((collaborator) => {
+        if (collaborator.name.trim()) names.add(collaborator.name);
+      });
+    } else if (session?.name) {
+      names.add(session.name);
+    }
+
+    scopedEntries.forEach((entry) => {
+      if (entry.seller.trim()) names.add(entry.seller);
+    });
+
+    return [...names].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [canViewAll, collaborators, scopedEntries, session]);
+
+  useEffect(() => {
+    if (selectedSeller !== allSellersFilter && !sellerFilterOptions.includes(selectedSeller)) {
+      setSelectedSeller(allSellersFilter);
+    }
+  }, [selectedSeller, sellerFilterOptions]);
+
+  const filteredEntries = useMemo(
+    () =>
+      scopedEntries.filter((entry) => {
+        const isSelectedMonth = isDateInMonth(entry.dueDate, selectedCommissionMonth);
+        const isSelectedSeller =
+          selectedSeller === allSellersFilter || entry.seller === selectedSeller;
+
+        return isSelectedMonth && isSelectedSeller;
+      }),
+    [scopedEntries, selectedCommissionMonth, selectedSeller],
+  );
+
+  const visibleEntries = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
+    if (!normalizedQuery) return filteredEntries;
+
+    return filteredEntries.filter((entry) =>
       [
         entry.saleDate,
         entry.dueDate,
@@ -162,13 +293,13 @@ function Commissions() {
         .toLocaleLowerCase("pt-BR")
         .includes(normalizedQuery),
     );
-  }, [canViewAll, commissionEntries, query, session]);
+  }, [filteredEntries, query]);
 
-  const summary = calculateCommissionSummary(visibleEntries);
+  const summary = calculateCommissionSummary(filteredEntries);
   const collaboratorsByName = useMemo(() => buildCollaboratorMap(collaborators), [collaborators]);
   const sellerRows = useMemo(
-    () => buildSellerRows(visibleEntries, collaboratorsByName),
-    [collaboratorsByName, visibleEntries],
+    () => buildSellerRows(filteredEntries, collaboratorsByName),
+    [collaboratorsByName, filteredEntries],
   );
 
   const markAsPaid = (entry: CommissionEntry) => {
@@ -542,21 +673,41 @@ function Commissions() {
       </div>
 
       <Card className="border-border/60 bg-card/60 p-5">
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h3 className="font-display text-lg font-semibold">Histórico de comissões</h3>
             <p className="text-sm text-muted-foreground">
-              Cada linha representa um gatilho de comissão, não apenas uma venda.
+              {formatMonthLabel(selectedCommissionMonth)} · {filteredEntries.length} comissões no
+              filtro
             </p>
           </div>
-          <div className="relative w-full md:max-w-xs">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Buscar comissão..."
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <CommissionMonthSelector
+              month={selectedCommissionMonth}
+              onMonthChange={setSelectedCommissionMonth}
             />
+            <Select value={selectedSeller} onValueChange={setSelectedSeller}>
+              <SelectTrigger className="h-9 w-52" aria-label="Selecionar vendedor">
+                <SelectValue placeholder="Todos os vendedores" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={allSellersFilter}>Todos os vendedores</SelectItem>
+                {sellerFilterOptions.map((seller) => (
+                  <SelectItem key={seller} value={seller}>
+                    {seller}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-9 pl-9"
+                placeholder="Buscar comissão..."
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
           </div>
         </div>
 
