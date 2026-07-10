@@ -45,6 +45,7 @@ import {
   Plus,
   RotateCcw,
   FileText,
+  Pencil,
 } from "lucide-react";
 import {
   clients as initialClients,
@@ -93,6 +94,22 @@ type Client = (typeof initialClients)[number] & {
 };
 type Collaborator = (typeof initialCollaborators)[number] & { role?: string; photoUrl?: string };
 
+const emptyClientForm = {
+  name: "",
+  doc: "",
+  phone: "",
+  email: "",
+  zip: "",
+  address: "",
+  service: "",
+  origin: "",
+  seller: "",
+  paymentMethod: "avista" as PaymentMethod,
+  installments: "1",
+  status: "ativo",
+  total: "0",
+};
+
 function Clients() {
   const [clients, setClients] = usePersistentState<Client[]>("va-manager:clients", initialClients);
   const [sales] = usePersistentState("va-manager:sales", initialSales);
@@ -104,6 +121,7 @@ function Clients() {
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [collaboratorOpen, setCollaboratorOpen] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
   const [collaboratorForm, setCollaboratorForm] = useState({
@@ -111,21 +129,7 @@ function Clients() {
     role: "Comercial",
     photoUrl: "",
   });
-  const [form, setForm] = useState({
-    name: "",
-    doc: "",
-    phone: "",
-    email: "",
-    zip: "",
-    address: "",
-    service: "",
-    origin: "",
-    seller: "",
-    paymentMethod: "avista" as PaymentMethod,
-    installments: "1",
-    status: "ativo",
-    total: "0",
-  });
+  const [form, setForm] = useState({ ...emptyClientForm });
 
   const filteredClients = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -171,6 +175,36 @@ function Clients() {
 
   const updateForm = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const resetClientForm = () => {
+    setForm({ ...emptyClientForm });
+    setEditingClientId(null);
+  };
+
+  const handleClientDialogChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) resetClientForm();
+  };
+
+  const openEditClient = (client: Client) => {
+    setEditingClientId(client.id);
+    setForm({
+      name: client.name ?? "",
+      doc: client.doc ?? "",
+      phone: formatBrazilianPhone(client.phone ?? ""),
+      email: client.email ?? "",
+      zip: formatCep(client.zip ?? ""),
+      address: client.address ?? "",
+      service: client.service ?? "",
+      origin: client.origin ?? "",
+      seller: client.seller ?? "",
+      paymentMethod: (client.paymentMethod ?? "avista") as PaymentMethod,
+      installments: String(client.installments ?? 1),
+      status: client.status ?? "ativo",
+      total: formatCurrencyInput(client.total ?? 0),
+    });
+    setOpen(true);
   };
 
   const searchCep = async () => {
@@ -253,7 +287,7 @@ function Clients() {
     event.preventDefault();
     const name = form.name.trim();
     if (!name) return;
-    const id = `c-${Date.now()}`;
+    const isEditing = Boolean(editingClientId);
     const totalValue = parseCurrencyInput(form.total);
     const service = form.service.trim() || serviceOptions[0]?.name || "Consultoria de Credito";
     const seller = form.seller.trim() || collaboratorOptions[0]?.name || "Equipe VA";
@@ -261,45 +295,51 @@ function Clients() {
     const paymentMethod = form.paymentMethod as PaymentMethod;
     const installments = Number(form.installments) || 1;
     const saleDate = new Date();
+    const clientData = {
+      name,
+      doc: form.doc.trim() || "Não informado",
+      phone: formatBrazilianPhone(form.phone).trim() || "Não informado",
+      email: form.email.trim() || "sem-email@vaconsultoria.com",
+      zip: formatCep(form.zip),
+      address: form.address.trim() || "Não informado",
+      service,
+      entryDate: toLocalISODate(saleDate),
+      origin,
+      seller,
+      paymentMethod,
+      installments: paymentMethod === "credito" ? installments : 1,
+      status: form.status,
+      total: totalValue,
+    };
 
-    setClients((current) => [
-      {
-        id,
-        name,
-        doc: form.doc.trim() || "Não informado",
-        phone: formatBrazilianPhone(form.phone).trim() || "Não informado",
-        email: form.email.trim() || "sem-email@vaconsultoria.com",
-        zip: formatCep(form.zip),
-        address: form.address.trim() || "Não informado",
-        service,
-        entryDate: toLocalISODate(saleDate),
-        origin,
-        seller,
-        paymentMethod,
-        installments: paymentMethod === "credito" ? installments : 1,
-        status: form.status,
-        total: totalValue,
-      },
-      ...current,
-    ]);
+    setClients((current) =>
+      editingClientId
+        ? current.map((client) =>
+            client.id === editingClientId
+              ? {
+                  ...client,
+                  ...clientData,
+                  id: client.id,
+                  entryDate: client.entryDate || clientData.entryDate,
+                }
+              : client,
+          )
+        : [
+            {
+              id: `c-${Date.now()}`,
+              ...clientData,
+            },
+            ...current,
+          ],
+    );
 
-    setForm({
-      name: "",
-      doc: "",
-      phone: "",
-      email: "",
-      zip: "",
-      address: "",
-      service: "",
-      origin: "",
-      seller: "",
-      paymentMethod: "avista",
-      installments: "1",
-      status: "ativo",
-      total: "0",
-    });
+    resetClientForm();
     setOpen(false);
-    toast.success("Cliente cadastrado. Registre uma venda para lançar receita.");
+    toast.success(
+      isEditing
+        ? "Cliente atualizado."
+        : "Cliente cadastrado. Registre uma venda para lançar receita.",
+    );
   };
 
   const toggleClientStatus = (id: string) => {
@@ -407,7 +447,7 @@ function Clients() {
               <RotateCcw className="mr-2 h-4 w-4" />
               Restaurar demo
             </Button>
-            <Dialog open={open} onOpenChange={setOpen}>
+            <Dialog open={open} onOpenChange={handleClientDialogChange}>
               <DialogTrigger asChild>
                 <PremiumActionButton
                   icon={<Plus />}
@@ -419,10 +459,11 @@ function Clients() {
               <DialogContent className="sm:max-w-2xl">
                 <form onSubmit={submitClient}>
                   <DialogHeader>
-                    <DialogTitle>Novo cliente</DialogTitle>
+                    <DialogTitle>{editingClientId ? "Editar cliente" : "Novo cliente"}</DialogTitle>
                     <DialogDescription>
-                      O cadastro fica salvo neste navegador. Depois a mesma camada pode apontar para
-                      API, Supabase ou PostgreSQL.
+                      {editingClientId
+                        ? "Atualize os dados do cliente sem perder o vínculo com contratos e vendas."
+                        : "O cadastro fica salvo neste navegador. Depois a mesma camada pode apontar para API, Supabase ou PostgreSQL."}
                     </DialogDescription>
                   </DialogHeader>
                   <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -546,11 +587,11 @@ function Clients() {
                     </div>
                   </div>
                   <DialogFooter className="mt-6">
-                    <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                    <Button type="button" variant="outline" onClick={() => handleClientDialogChange(false)}>
                       Cancelar
                     </Button>
                     <Button type="submit" className="gradient-primary text-primary-foreground">
-                      Salvar cliente
+                      {editingClientId ? "Atualizar cliente" : "Salvar cliente"}
                     </Button>
                   </DialogFooter>
                 </form>
@@ -725,6 +766,10 @@ function Clients() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => openEditClient(client)}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          Editar
+                        </Button>
                         <Button variant="ghost" size="sm" asChild>
                           <Link to="/contracts" search={{ client: client.id }}>
                             <FileText className="mr-1 h-3.5 w-3.5" />
