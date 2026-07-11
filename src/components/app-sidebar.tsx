@@ -19,6 +19,7 @@ import {
   Banknote,
   BadgeDollarSign,
   BrainCircuit,
+  Gauge,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -62,6 +63,7 @@ const groups = [
       { title: "Clientes", url: "/clients", icon: Users },
       { title: "Contratos", url: "/contracts", icon: FileText },
       { title: "Credit Intelligence", url: "/credit-intelligence", icon: BrainCircuit },
+      { title: "Rating", url: "/rating", icon: Gauge },
       { title: "Ranking", url: "/ranking", icon: Trophy },
       { title: "Comissões", url: "/commissions", icon: BadgeDollarSign },
       { title: "Serviços", url: "/services", icon: Briefcase },

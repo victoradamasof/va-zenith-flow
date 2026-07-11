@@ -13,11 +13,13 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SignTokenRouteImport } from './routes/sign.$token'
+import { Route as RatingFormTokenRouteImport } from './routes/rating-form.$token'
 import { Route as AppUsersRouteImport } from './routes/_app/users'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppServicesRouteImport } from './routes/_app/services'
 import { Route as AppSalesRouteImport } from './routes/_app/sales'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
+import { Route as AppRatingRouteImport } from './routes/_app/rating'
 import { Route as AppRankingRouteImport } from './routes/_app/ranking'
 import { Route as AppInvestmentsRouteImport } from './routes/_app/investments'
 import { Route as AppInsightsRouteImport } from './routes/_app/insights'
@@ -53,6 +55,11 @@ const SignTokenRoute = SignTokenRouteImport.update({
   path: '/sign/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RatingFormTokenRoute = RatingFormTokenRouteImport.update({
+  id: '/rating-form/$token',
+  path: '/rating-form/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppUsersRoute = AppUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -76,6 +83,11 @@ const AppSalesRoute = AppSalesRouteImport.update({
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRatingRoute = AppRatingRouteImport.update({
+  id: '/rating',
+  path: '/rating',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRankingRoute = AppRankingRouteImport.update({
@@ -172,11 +184,13 @@ export interface FileRoutesByFullPath {
   '/insights': typeof AppInsightsRoute
   '/investments': typeof AppInvestmentsRoute
   '/ranking': typeof AppRankingRoute
+  '/rating': typeof AppRatingRoute
   '/reports': typeof AppReportsRoute
   '/sales': typeof AppSalesRoute
   '/services': typeof AppServicesRoute
   '/settings': typeof AppSettingsRoute
   '/users': typeof AppUsersRoute
+  '/rating-form/$token': typeof RatingFormTokenRoute
   '/sign/$token': typeof SignTokenRoute
 }
 export interface FileRoutesByTo {
@@ -197,11 +211,13 @@ export interface FileRoutesByTo {
   '/insights': typeof AppInsightsRoute
   '/investments': typeof AppInvestmentsRoute
   '/ranking': typeof AppRankingRoute
+  '/rating': typeof AppRatingRoute
   '/reports': typeof AppReportsRoute
   '/sales': typeof AppSalesRoute
   '/services': typeof AppServicesRoute
   '/settings': typeof AppSettingsRoute
   '/users': typeof AppUsersRoute
+  '/rating-form/$token': typeof RatingFormTokenRoute
   '/sign/$token': typeof SignTokenRoute
 }
 export interface FileRoutesById {
@@ -224,11 +240,13 @@ export interface FileRoutesById {
   '/_app/insights': typeof AppInsightsRoute
   '/_app/investments': typeof AppInvestmentsRoute
   '/_app/ranking': typeof AppRankingRoute
+  '/_app/rating': typeof AppRatingRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/sales': typeof AppSalesRoute
   '/_app/services': typeof AppServicesRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/users': typeof AppUsersRoute
+  '/rating-form/$token': typeof RatingFormTokenRoute
   '/sign/$token': typeof SignTokenRoute
 }
 export interface FileRouteTypes {
@@ -251,11 +269,13 @@ export interface FileRouteTypes {
     | '/insights'
     | '/investments'
     | '/ranking'
+    | '/rating'
     | '/reports'
     | '/sales'
     | '/services'
     | '/settings'
     | '/users'
+    | '/rating-form/$token'
     | '/sign/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -276,11 +296,13 @@ export interface FileRouteTypes {
     | '/insights'
     | '/investments'
     | '/ranking'
+    | '/rating'
     | '/reports'
     | '/sales'
     | '/services'
     | '/settings'
     | '/users'
+    | '/rating-form/$token'
     | '/sign/$token'
   id:
     | '__root__'
@@ -302,11 +324,13 @@ export interface FileRouteTypes {
     | '/_app/insights'
     | '/_app/investments'
     | '/_app/ranking'
+    | '/_app/rating'
     | '/_app/reports'
     | '/_app/sales'
     | '/_app/services'
     | '/_app/settings'
     | '/_app/users'
+    | '/rating-form/$token'
     | '/sign/$token'
   fileRoutesById: FileRoutesById
 }
@@ -314,6 +338,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  RatingFormTokenRoute: typeof RatingFormTokenRoute
   SignTokenRoute: typeof SignTokenRoute
 }
 
@@ -345,6 +370,13 @@ declare module '@tanstack/react-router' {
       path: '/sign/$token'
       fullPath: '/sign/$token'
       preLoaderRoute: typeof SignTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/rating-form/$token': {
+      id: '/rating-form/$token'
+      path: '/rating-form/$token'
+      fullPath: '/rating-form/$token'
+      preLoaderRoute: typeof RatingFormTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/users': {
@@ -380,6 +412,13 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/rating': {
+      id: '/_app/rating'
+      path: '/rating'
+      fullPath: '/rating'
+      preLoaderRoute: typeof AppRatingRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/ranking': {
@@ -506,6 +545,7 @@ interface AppRouteChildren {
   AppInsightsRoute: typeof AppInsightsRoute
   AppInvestmentsRoute: typeof AppInvestmentsRoute
   AppRankingRoute: typeof AppRankingRoute
+  AppRatingRoute: typeof AppRatingRoute
   AppReportsRoute: typeof AppReportsRoute
   AppSalesRoute: typeof AppSalesRoute
   AppServicesRoute: typeof AppServicesRoute
@@ -529,6 +569,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInsightsRoute: AppInsightsRoute,
   AppInvestmentsRoute: AppInvestmentsRoute,
   AppRankingRoute: AppRankingRoute,
+  AppRatingRoute: AppRatingRoute,
   AppReportsRoute: AppReportsRoute,
   AppSalesRoute: AppSalesRoute,
   AppServicesRoute: AppServicesRoute,
@@ -542,6 +583,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  RatingFormTokenRoute: RatingFormTokenRoute,
   SignTokenRoute: SignTokenRoute,
 }
 export const routeTree = rootRouteImport

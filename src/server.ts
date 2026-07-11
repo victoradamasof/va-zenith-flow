@@ -24,9 +24,12 @@ type CloudEnv = {
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 const cloudDataKey = "va-manager:primary-state";
 const signingLinkPrefix = "va-manager:signing-link:";
+const ratingLinkPrefix = "va-manager:rating-link:";
+const ratingIntakePrefix = "va-manager:rating-intake:";
 const usersDataKey = "va-manager:users";
 const salesDataKey = "va-manager:sales";
 const signedContractsDataKey = "va-manager:signed-contracts";
+const ratingIntakesDataKey = "va-manager:rating-intakes";
 const notificationEventsDataKey = "va-manager:notification-events";
 const pushSubscriptionsDataKey = "va-manager:push-subscriptions";
 const defaultVapidPublicKey =
@@ -229,6 +232,43 @@ function mergeSignedContractsPreservingEvidence(existing: unknown, incoming: unk
   }
 
   return Array.from(merged.values());
+}
+
+function getRatingIntakeId(record: unknown) {
+  if (!record || typeof record !== "object") return "";
+  const item = record as Record<string, unknown>;
+  const id = typeof item.id === "string" ? item.id.trim() : "";
+  const token = typeof item.token === "string" ? item.token.trim() : "";
+  return id || token;
+}
+
+function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown) {
+  const existingRecords = Array.isArray(existing) ? existing : [];
+  const incomingRecords = Array.isArray(incoming) ? incoming : [];
+  const merged = new Map<string, unknown>();
+
+  for (const record of existingRecords) {
+    const id = getRatingIntakeId(record);
+    if (id) merged.set(id, record);
+  }
+
+  for (const record of incomingRecords) {
+    const id = getRatingIntakeId(record);
+    if (!id) continue;
+    const previous = merged.get(id);
+    merged.set(id, {
+      ...(previous && typeof previous === "object" ? previous : {}),
+      ...(record && typeof record === "object" ? record : {}),
+    });
+  }
+
+  return Array.from(merged.values()).sort((a, b) => {
+    const aRecord = a as Record<string, unknown>;
+    const bRecord = b as Record<string, unknown>;
+    const aDate = String(aRecord.submittedAt ?? aRecord.createdAt ?? "");
+    const bDate = String(bRecord.submittedAt ?? bRecord.createdAt ?? "");
+    return bDate.localeCompare(aDate);
+  });
 }
 
 async function readCloudPayload(kv: KvNamespace): Promise<CloudPayload | null> {
@@ -726,6 +766,13 @@ async function handleCloudDataRequest(request: Request, env: unknown): Promise<R
       nextData[signedContractsDataKey] = mergeSignedContractsPreservingEvidence(
         existingPayload?.data?.[signedContractsDataKey],
         incomingData[signedContractsDataKey],
+      );
+    }
+
+    if (incomingData[ratingIntakesDataKey]) {
+      nextData[ratingIntakesDataKey] = mergeRatingIntakesPreservingCloud(
+        existingPayload?.data?.[ratingIntakesDataKey],
+        incomingData[ratingIntakesDataKey],
       );
     }
 
@@ -1500,6 +1547,179 @@ async function handleSigningLinkRequest(request: Request, env: unknown): Promise
   return jsonResponse({ error: "Method not allowed." }, { status: 405 });
 }
 
+async function handleRatingLinksRequest(request: Request, env: unknown): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/api/rating-links")) return null;
+
+  const kv = (env as CloudEnv).VA_MANAGER_DATA;
+  if (!kv) {
+    return jsonResponse({ error: "Cloud storage is not configured." }, { status: 503 });
+  }
+
+  if (request.method === "GET") {
+    const token = decodeURIComponent(url.pathname.replace("/api/rating-links/", "")).trim();
+    if (!token || token === "/api/rating-links") {
+      return jsonResponse({ error: "Missing rating token." }, { status: 400 });
+    }
+
+    const stored = await kv.get(`${ratingLinkPrefix}${token}`);
+    if (!stored) return jsonResponse({ error: "Rating link not found." }, { status: 404 });
+
+    let payload: unknown = null;
+    try {
+      payload = JSON.parse(stored);
+    } catch {
+      return jsonResponse({ error: "Invalid rating link payload." }, { status: 500 });
+    }
+
+    const intakeStored = await kv.get(`${ratingIntakePrefix}${token}`);
+    let intake: unknown = null;
+    if (intakeStored) {
+      try {
+        intake = JSON.parse(intakeStored);
+      } catch {
+        intake = null;
+      }
+    }
+
+    return jsonResponse({
+      ...(payload && typeof payload === "object" ? payload : {}),
+      intake,
+    });
+  }
+
+  if (request.method === "POST") {
+    let body: { payload?: unknown; slugBase?: string };
+    try {
+      body = (await request.json()) as { payload?: unknown; slugBase?: string };
+    } catch {
+      return jsonResponse({ error: "Invalid JSON body." }, { status: 400 });
+    }
+
+    if (!body?.payload || typeof body.payload !== "object") {
+      return jsonResponse({ error: "Invalid rating payload." }, { status: 400 });
+    }
+
+    const slugBase = slugifyToken(body.slugBase || "rating-vaconsultoria");
+    const random =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+    const token = `${slugBase}-${random}`;
+    const payload = {
+      createdAt: new Date().toISOString(),
+      payload: body.payload,
+    };
+
+    await kv.put(`${ratingLinkPrefix}${token}`, JSON.stringify(payload), {
+      expirationTtl: 60 * 60 * 24 * 365,
+    });
+
+    return jsonResponse({ token, path: `/rating-form/${token}` });
+  }
+
+  return jsonResponse({ error: "Method not allowed." }, { status: 405 });
+}
+
+async function handleRatingIntakesRequest(request: Request, env: unknown): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/api/rating-intakes")) return null;
+
+  const kv = (env as CloudEnv).VA_MANAGER_DATA;
+  if (!kv) {
+    return jsonResponse({ error: "Cloud storage is not configured." }, { status: 503 });
+  }
+
+  const token = decodeURIComponent(url.pathname.replace("/api/rating-intakes/", "")).trim();
+
+  if (request.method === "GET") {
+    if (token && token !== "/api/rating-intakes") {
+      const stored = await kv.get(`${ratingIntakePrefix}${token}`);
+      if (!stored) return jsonResponse({ record: null }, { status: 404 });
+      return new Response(stored, {
+        headers: { "content-type": "application/json; charset=utf-8" },
+      });
+    }
+
+    const stored = await readCloudPayload(kv);
+    const records = Array.isArray(stored?.data?.[ratingIntakesDataKey])
+      ? stored?.data?.[ratingIntakesDataKey]
+      : [];
+    return jsonResponse({ updatedAt: stored?.updatedAt ?? null, records });
+  }
+
+  if (request.method === "POST" || request.method === "PUT") {
+    if (!token || token === "/api/rating-intakes") {
+      return jsonResponse({ error: "Missing rating token." }, { status: 400 });
+    }
+
+    let body: { data?: unknown };
+    try {
+      body = (await request.json()) as { data?: unknown };
+    } catch {
+      return jsonResponse({ error: "Invalid JSON body." }, { status: 400 });
+    }
+
+    if (!body?.data || typeof body.data !== "object") {
+      return jsonResponse({ error: "Invalid rating form data." }, { status: 400 });
+    }
+
+    const linkStored = await kv.get(`${ratingLinkPrefix}${token}`);
+    if (!linkStored) return jsonResponse({ error: "Rating link not found." }, { status: 404 });
+
+    let linkPayload: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(linkStored) as { createdAt?: string; payload?: unknown };
+      linkPayload = {
+        createdAt: parsed.createdAt,
+        ...(parsed.payload && typeof parsed.payload === "object" ? parsed.payload : {}),
+      };
+    } catch {
+      return jsonResponse({ error: "Invalid rating link payload." }, { status: 500 });
+    }
+
+    const saleId = typeof linkPayload.saleId === "string" ? linkPayload.saleId : token;
+    const record = {
+      id: `rating-${saleId}`,
+      token,
+      saleId,
+      clientName: typeof linkPayload.clientName === "string" ? linkPayload.clientName : "Cliente",
+      clientEmail: typeof linkPayload.clientEmail === "string" ? linkPayload.clientEmail : undefined,
+      clientPhone: typeof linkPayload.clientPhone === "string" ? linkPayload.clientPhone : undefined,
+      service: typeof linkPayload.service === "string" ? linkPayload.service : "Rating Bancario",
+      seller: typeof linkPayload.seller === "string" ? linkPayload.seller : "",
+      type: "pf",
+      status: "preenchido",
+      createdAt:
+        typeof linkPayload.createdAt === "string" ? linkPayload.createdAt : new Date().toISOString(),
+      submittedAt: new Date().toISOString(),
+      data: body.data,
+    };
+
+    await kv.put(`${ratingIntakePrefix}${token}`, JSON.stringify(record), {
+      expirationTtl: 60 * 60 * 24 * 365,
+    });
+
+    const existingPayload = await readCloudPayload(kv);
+    const nextRecords = mergeRatingIntakesPreservingCloud(
+      existingPayload?.data?.[ratingIntakesDataKey],
+      [record],
+    );
+    const payload = await writeCloudPayload(kv, {
+      ...(existingPayload?.data ?? {}),
+      [ratingIntakesDataKey]: nextRecords,
+    });
+
+    return jsonResponse({
+      updatedAt: payload.updatedAt,
+      record,
+      records: nextRecords,
+    });
+  }
+
+  return jsonResponse({ error: "Method not allowed." }, { status: 405 });
+}
+
 function slugifyToken(value: string) {
   return value
     .normalize("NFD")
@@ -1525,6 +1745,12 @@ export default {
 
       const signingLinkResponse = await handleSigningLinkRequest(request, env);
       if (signingLinkResponse) return signingLinkResponse;
+
+      const ratingLinksResponse = await handleRatingLinksRequest(request, env);
+      if (ratingLinksResponse) return ratingLinksResponse;
+
+      const ratingIntakesResponse = await handleRatingIntakesRequest(request, env);
+      if (ratingIntakesResponse) return ratingIntakesResponse;
 
       const signedContractsResponse = await handleSignedContractsRequest(request, env);
       if (signedContractsResponse) return signedContractsResponse;
