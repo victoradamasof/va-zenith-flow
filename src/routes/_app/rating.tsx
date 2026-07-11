@@ -3,6 +3,7 @@ import { Copy, FileText, Link2, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { RatingPFFormFields } from "@/components/rating-pf-form";
+import { RatingPJFormFields } from "@/components/rating-pj-form";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -37,19 +38,25 @@ import {
   formatBRL,
 } from "@/lib/mock-data";
 import {
-  createEmptyRatingPFForm,
+  createEmptyRatingForm,
+  getRatingEntityTypeLabel,
   getRatingStatusLabel,
+  inferRatingEntityType,
   isRatingService,
   mergeRatingIntakes,
+  normalizeRatingEntityType,
   normalizeRatingStatus,
   ratingIntakesKey,
   ratingLinksKey,
   ratingStatusOptions,
+  type RatingEntityType,
+  type RatingFormData,
   type RatingIntake,
   type RatingIntakeStatus,
   type RatingLinkPayload,
   type RatingLinkRecord,
   type RatingPFForm,
+  type RatingPJForm,
 } from "@/lib/rating";
 import { formatLocalDateBR } from "@/lib/date-utils";
 
@@ -66,6 +73,7 @@ type Sale = (typeof initialSales)[number] & {
 type Client = (typeof initialClients)[number] & {
   seller?: string;
   address?: string;
+  doc?: string;
 };
 
 function Rating() {
@@ -75,7 +83,7 @@ function Rating() {
   const [links, setLinks] = usePersistentState<RatingLinkRecord[]>(ratingLinksKey, []);
   const [query, setQuery] = useState("");
   const [selectedIntake, setSelectedIntake] = useState<RatingIntake | null>(null);
-  const [selectedForm, setSelectedForm] = useState<RatingPFForm>(createEmptyRatingPFForm());
+  const [selectedForm, setSelectedForm] = useState<RatingFormData>(createEmptyRatingForm("pf"));
 
   useEffect(() => {
     let cancelled = false;
@@ -123,8 +131,11 @@ function Rating() {
             item.clientName.trim().toLowerCase() === sale.client.trim().toLowerCase(),
         );
         const link = links.find((item) => item.saleId === sale.id);
+        const ratingType = normalizeRatingEntityType(
+          intake?.type ?? link?.type ?? inferRatingEntityType(client?.doc ?? ""),
+        );
 
-        return { sale, client, intake, link };
+        return { sale, client, intake, link, ratingType };
       })
       .filter(({ sale, client, intake }) => {
         if (!normalizedQuery) return true;
@@ -154,12 +165,13 @@ function Rating() {
         clientPhone: row.client?.phone,
         service: row.sale.service,
         seller: row.sale.seller,
+        type: row.ratingType,
         }),
         token: row.link?.token ?? "",
       };
 
     setSelectedIntake(intake);
-    setSelectedForm(intake.data);
+    setSelectedForm(intake.data ?? createEmptyRatingForm(normalizeRatingEntityType(intake.type)));
   };
 
   const saveInternalIntake = () => {
@@ -193,6 +205,7 @@ function Rating() {
           clientPhone: row.client?.phone,
           service: row.sale.service,
           seller: row.sale.seller,
+          type: row.ratingType,
         }),
         token: row.link?.token ?? "",
       };
@@ -213,12 +226,60 @@ function Rating() {
     toast.success(`Status alterado para ${getRatingStatusLabel(nextStatus)}.`);
   };
 
+  const updateRatingType = (saleId: string, nextType: RatingEntityType) => {
+    const row = rows.find((item) => item.sale.id === saleId);
+    if (!row) return;
+
+    const currentType = normalizeRatingEntityType(row.intake?.type ?? row.link?.type ?? row.ratingType);
+    const baseRecord =
+      row.intake ??
+      {
+        ...createPendingIntake({
+          saleId: row.sale.id,
+          clientName: row.sale.client,
+          clientEmail: row.client?.email,
+          clientPhone: row.client?.phone,
+          service: row.sale.service,
+          seller: row.sale.seller,
+          type: nextType,
+        }),
+        token: row.link?.token ?? "",
+      };
+
+    const nextRecord: RatingIntake = {
+      ...baseRecord,
+      type: nextType,
+      data:
+        currentType === nextType
+          ? baseRecord.data
+          : createPendingIntake({
+              saleId: row.sale.id,
+              clientName: row.sale.client,
+              clientEmail: row.client?.email,
+              clientPhone: row.client?.phone,
+              service: row.sale.service,
+              seller: row.sale.seller,
+              type: nextType,
+            }).data,
+    };
+
+    setIntakes((current) => mergeRatingIntakes(current, [nextRecord]));
+    if (selectedIntake?.saleId === saleId) {
+      setSelectedIntake(nextRecord);
+      setSelectedForm(nextRecord.data);
+    }
+    if (nextRecord.token) {
+      void saveIntakeToServer(nextRecord);
+    }
+    toast.success(`Ficha alterada para ${getRatingEntityTypeLabel(nextType)}.`);
+  };
+
   const generateLink = async (saleId: string) => {
     const row = rows.find((item) => item.sale.id === saleId);
     if (!row) return;
 
     const existing = row.link;
-    if (existing) {
+    if (existing && normalizeRatingEntityType(existing.type) === row.ratingType) {
       await copyLink(buildAbsoluteUrl(existing.path));
       return;
     }
@@ -230,7 +291,7 @@ function Rating() {
       clientPhone: row.client?.phone,
       service: row.sale.service,
       seller: row.sale.seller,
-      type: "pf",
+      type: row.ratingType,
     };
 
     try {
@@ -250,6 +311,7 @@ function Rating() {
         clientName: row.sale.client,
         service: row.sale.service,
         seller: row.sale.seller,
+        type: row.ratingType,
         path: data.path,
         createdAt: new Date().toISOString(),
       };
@@ -269,7 +331,7 @@ function Rating() {
     <div className="space-y-6">
       <PageHeader
         title="Rating"
-        subtitle="Ficha de Rating Pessoa Física integrada às vendas e clientes"
+        subtitle="Fichas de Rating Pessoa Física e Pessoa Jurídica integradas às vendas e clientes"
       />
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -320,6 +382,7 @@ function Rating() {
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableHead>Cliente</TableHead>
+                <TableHead>Tipo</TableHead>
                 <TableHead>Serviço</TableHead>
                 <TableHead>Vendedor</TableHead>
                 <TableHead>Venda</TableHead>
@@ -329,7 +392,7 @@ function Rating() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map(({ sale, client, intake, link }) => (
+              {rows.map(({ sale, client, intake, link, ratingType }) => (
                 <TableRow key={sale.id}>
                   <TableCell>
                     <button
@@ -342,6 +405,20 @@ function Rating() {
                     <p className="text-xs text-muted-foreground">
                       {client?.email ?? "sem e-mail"} · {client?.phone ?? "sem telefone"}
                     </p>
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={ratingType}
+                      onValueChange={(value) => updateRatingType(sale.id, value as RatingEntityType)}
+                    >
+                      <SelectTrigger className="h-8 w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pf">PF</SelectItem>
+                        <SelectItem value="pj">PJ</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </TableCell>
                   <TableCell>{sale.service}</TableCell>
                   <TableCell>{sale.seller}</TableCell>
@@ -387,7 +464,7 @@ function Rating() {
               ))}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
                     Nenhuma venda de Rating Bancário encontrada. Cadastre uma venda com serviço de
                     rating para ela aparecer aqui.
                   </TableCell>
@@ -401,7 +478,9 @@ function Rating() {
       <Dialog open={Boolean(selectedIntake)} onOpenChange={(open) => !open && setSelectedIntake(null)}>
         <DialogContent className="max-h-[92vh] max-w-[96vw] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Ficha de Rating PF - {selectedIntake?.clientName}</DialogTitle>
+            <DialogTitle>
+              Ficha de Rating {getRatingEntityTypeLabel(selectedIntake?.type)} - {selectedIntake?.clientName}
+            </DialogTitle>
             <DialogDescription>
               Dados enviados pelo cliente ou preenchidos internamente pela equipe comercial.
             </DialogDescription>
@@ -437,12 +516,20 @@ function Rating() {
               </div>
             </Card>
           ) : null}
-          <RatingPFFormFields value={selectedForm} onChange={setSelectedForm} />
+          {normalizeRatingEntityType(selectedIntake?.type) === "pj" ? (
+            <RatingPJFormFields value={selectedForm as RatingPJForm} onChange={(nextForm) => setSelectedForm(nextForm)} />
+          ) : (
+            <RatingPFFormFields value={selectedForm as RatingPFForm} onChange={(nextForm) => setSelectedForm(nextForm)} />
+          )}
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => setSelectedIntake(null)}>
               Fechar
             </Button>
-            <Button type="button" variant="outline" onClick={() => setSelectedForm(createEmptyRatingPFForm())}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setSelectedForm(createEmptyRatingForm(normalizeRatingEntityType(selectedIntake?.type)))}
+            >
               <RotateCcw className="mr-2 h-4 w-4" />
               Limpar ficha
             </Button>
@@ -458,6 +545,7 @@ function Rating() {
 }
 
 function createPendingIntake(payload: RatingLinkPayload): RatingIntake {
+  const type = normalizeRatingEntityType(payload.type);
   return {
     id: `rating-${payload.saleId}`,
     token: "",
@@ -467,13 +555,22 @@ function createPendingIntake(payload: RatingLinkPayload): RatingIntake {
     clientPhone: payload.clientPhone,
     service: payload.service,
     seller: payload.seller,
-    type: "pf",
+    type,
     status: "pendente",
     createdAt: new Date().toISOString(),
-    data: createEmptyRatingPFForm({
-      email: payload.clientEmail ?? "",
-      mobilePhone: payload.clientPhone ?? "",
-    }),
+    data: createEmptyRatingForm(
+      type,
+      type === "pj"
+        ? {
+            contactEmail: payload.clientEmail ?? "",
+            companyPhone: payload.clientPhone ?? "",
+            responsiblePhone: payload.clientPhone ?? "",
+          }
+        : {
+            email: payload.clientEmail ?? "",
+            mobilePhone: payload.clientPhone ?? "",
+          },
+    ),
   };
 }
 

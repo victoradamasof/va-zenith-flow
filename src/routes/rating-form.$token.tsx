@@ -3,14 +3,21 @@ import { CheckCircle2, FileText, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { RatingPFFormFields } from "@/components/rating-pf-form";
+import { RatingPJFormFields } from "@/components/rating-pj-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
+  createEmptyRatingForm,
   createEmptyRatingPFForm,
+  getRatingEntityTypeLabel,
+  normalizeRatingEntityType,
   normalizeRatingStatus,
+  type RatingEntityType,
+  type RatingFormData,
   type RatingIntake,
   type RatingLinkPayload,
   type RatingPFForm,
+  type RatingPJForm,
 } from "@/lib/rating";
 
 export const Route = createFileRoute("/rating-form/$token")({
@@ -21,7 +28,8 @@ export const Route = createFileRoute("/rating-form/$token")({
 function PublicRatingForm() {
   const { token } = Route.useParams();
   const [payload, setPayload] = useState<RatingLinkPayload | null>(null);
-  const [form, setForm] = useState<RatingPFForm>(createEmptyRatingPFForm());
+  const [formType, setFormType] = useState<RatingEntityType>("pf");
+  const [form, setForm] = useState<RatingFormData>(createEmptyRatingPFForm());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -42,13 +50,12 @@ function PublicRatingForm() {
         const data = (await response.json()) as { payload?: RatingLinkPayload; intake?: RatingIntake };
         if (cancelled) return;
         const nextPayload = data.payload ?? null;
+        const nextType = normalizeRatingEntityType(data.intake?.type ?? nextPayload?.type);
         setPayload(nextPayload);
+        setFormType(nextType);
         const nextForm =
           data.intake?.data ??
-          createEmptyRatingPFForm({
-            email: nextPayload?.clientEmail ?? "",
-            mobilePhone: nextPayload?.clientPhone ?? "",
-          });
+          createInitialRatingForm(nextType, nextPayload);
         setForm(nextForm);
         lastSavedPayloadRef.current = JSON.stringify(nextForm);
         didHydrateRef.current = true;
@@ -94,29 +101,8 @@ function PublicRatingForm() {
   }, [form, loading, payload, submitted, token]);
 
   const missingRequired = useMemo(
-    () =>
-      [
-        form.voterTitle,
-        form.rg,
-        form.birthDate,
-        form.maritalStatus,
-        form.homePhone,
-        form.fatherName,
-        form.motherName,
-        form.profession,
-        form.admissionDate,
-        form.incomeRange,
-        form.salary,
-        form.familyIncome,
-        form.serasaScore,
-        form.cep,
-        form.street,
-        form.number,
-        form.district,
-        form.city,
-        form.uf,
-      ].some((item) => !String(item ?? "").trim()),
-    [form],
+    () => isMissingRequired(formType, form),
+    [form, formType],
   );
 
   const submit = async () => {
@@ -179,7 +165,7 @@ function PublicRatingForm() {
             <div className="min-w-0 flex-1">
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Ficha segura de Rating Pessoa Física
+                Ficha segura de Rating {getRatingEntityTypeLabel(formType)}
               </div>
               <h1 className="mt-4 font-display text-3xl font-semibold">Olá, {payload.clientName}</h1>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -200,7 +186,11 @@ function PublicRatingForm() {
           </Card>
         )}
 
-        <RatingPFFormFields value={form} onChange={setForm} />
+        {formType === "pj" ? (
+          <RatingPJFormFields value={form as RatingPJForm} onChange={(nextForm) => setForm(nextForm)} />
+        ) : (
+          <RatingPFFormFields value={form as RatingPFForm} onChange={(nextForm) => setForm(nextForm)} />
+        )}
 
         <Card className="z-10 border-primary/25 bg-card p-4 shadow-sm sm:sticky sm:bottom-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -227,6 +217,73 @@ function PublicRatingForm() {
       </div>
     </RatingShell>
   );
+}
+
+function createInitialRatingForm(type: RatingEntityType, payload: RatingLinkPayload | null) {
+  return createEmptyRatingForm(
+    type,
+    type === "pj"
+      ? {
+          contactEmail: payload?.clientEmail ?? "",
+          companyPhone: payload?.clientPhone ?? "",
+          responsiblePhone: payload?.clientPhone ?? "",
+        }
+      : {
+          email: payload?.clientEmail ?? "",
+          mobilePhone: payload?.clientPhone ?? "",
+        },
+  );
+}
+
+function isMissingRequired(type: RatingEntityType, form: RatingFormData) {
+  if (type === "pj") {
+    const pj = form as RatingPJForm;
+    return [
+      pj.tradeName,
+      pj.stateRegistration,
+      pj.municipalRegistration,
+      pj.cnae,
+      pj.taxRegime,
+      pj.responsibleName,
+      pj.responsibleRg,
+      pj.responsibleCpf,
+      pj.responsibleRole,
+      pj.responsiblePhone,
+      pj.responsibleEmail,
+      pj.cep,
+      pj.street,
+      pj.number,
+      pj.district,
+      pj.city,
+      pj.uf,
+      pj.monthlyRevenue,
+      pj.annualRevenue,
+      pj.serasaScore,
+    ].some((item) => !String(item ?? "").trim());
+  }
+
+  const pf = form as RatingPFForm;
+  return [
+    pf.voterTitle,
+    pf.rg,
+    pf.birthDate,
+    pf.maritalStatus,
+    pf.homePhone,
+    pf.fatherName,
+    pf.motherName,
+    pf.profession,
+    pf.admissionDate,
+    pf.incomeRange,
+    pf.salary,
+    pf.familyIncome,
+    pf.serasaScore,
+    pf.cep,
+    pf.street,
+    pf.number,
+    pf.district,
+    pf.city,
+    pf.uf,
+  ].some((item) => !String(item ?? "").trim());
 }
 
 function RatingShell({ children }: { children: ReactNode }) {

@@ -248,6 +248,10 @@ function normalizeRatingIntakeStatus(status: unknown) {
   return "pendente";
 }
 
+function normalizeRatingIntakeType(type: unknown) {
+  return type === "pj" ? "pj" : "pf";
+}
+
 function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown) {
   const existingRecords = Array.isArray(existing) ? existing : [];
   const incomingRecords = Array.isArray(incoming) ? incoming : [];
@@ -259,6 +263,7 @@ function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown)
       merged.set(id, {
         ...(record && typeof record === "object" ? record : {}),
         status: normalizeRatingIntakeStatus((record as Record<string, unknown>)?.status),
+        type: normalizeRatingIntakeType((record as Record<string, unknown>)?.type),
       });
     }
   }
@@ -271,6 +276,7 @@ function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown)
       ...(previous && typeof previous === "object" ? previous : {}),
       ...(record && typeof record === "object" ? record : {}),
       status: normalizeRatingIntakeStatus((record as Record<string, unknown>)?.status),
+      type: normalizeRatingIntakeType((record as Record<string, unknown>)?.type),
     });
   }
 
@@ -1703,6 +1709,7 @@ async function handleRatingIntakesRequest(request: Request, env: unknown): Promi
     }
 
     const requestedStatus = normalizeRatingIntakeStatus(body.status);
+    const ratingType = normalizeRatingIntakeType(linkPayload.type);
     const now = new Date().toISOString();
     const previousSubmittedAt =
       typeof previousRecord.submittedAt === "string" ? previousRecord.submittedAt : undefined;
@@ -1718,7 +1725,7 @@ async function handleRatingIntakesRequest(request: Request, env: unknown): Promi
       clientPhone: typeof linkPayload.clientPhone === "string" ? linkPayload.clientPhone : undefined,
       service: typeof linkPayload.service === "string" ? linkPayload.service : "Rating Bancario",
       seller: typeof linkPayload.seller === "string" ? linkPayload.seller : "",
-      type: "pf",
+      type: ratingType,
       status: requestedStatus,
       createdAt:
         typeof previousRecord.createdAt === "string"

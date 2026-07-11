@@ -2,6 +2,7 @@ export const ratingIntakesKey = "va-manager:rating-intakes";
 export const ratingLinksKey = "va-manager:rating-links";
 
 export type RatingIntakeStatus = "pendente" | "enviado" | "concluido";
+export type RatingEntityType = "pf" | "pj";
 
 export const ratingStatusOptions: { value: RatingIntakeStatus; label: string }[] = [
   { value: "pendente", label: "Pendente" },
@@ -101,6 +102,52 @@ export type RatingPFForm = {
   notes: string;
 };
 
+export type RatingPJDocuments = {
+  cnpjCard?: RatingFileInfo;
+  revenueLast12Months?: RatingFileInfo;
+  articlesOfAssociation?: RatingFileInfo;
+  incomeTax?: RatingFileInfo;
+  custom: RatingFileInfo[];
+};
+
+export type RatingPJForm = {
+  tradeName: string;
+  stateRegistration: string;
+  municipalRegistration: string;
+  cnae: string;
+  taxRegime: string;
+  website: string;
+  companyPhone: string;
+  contactEmail: string;
+  responsibleName: string;
+  responsibleRg: string;
+  responsibleCpf: string;
+  responsibleRole: string;
+  responsiblePhone: string;
+  responsibleEmail: string;
+  cep: string;
+  street: string;
+  number: string;
+  complement: string;
+  district: string;
+  city: string;
+  uf: string;
+  bankAccounts: RatingBankAccount[];
+  monthlyRevenue: string;
+  annualRevenue: string;
+  serasaChecked: boolean;
+  serasaScore: string;
+  logins: RatingLogin[];
+  vehicles: RatingVehicle[];
+  machinery: string;
+  otherAssets: string;
+  documents: RatingPJDocuments;
+  references: RatingReference[];
+  notes: string;
+};
+
+export type RatingFormData = RatingPFForm | RatingPJForm;
+
 export type RatingIntake = {
   id: string;
   token: string;
@@ -110,11 +157,11 @@ export type RatingIntake = {
   clientPhone?: string;
   service: string;
   seller: string;
-  type: "pf";
+  type: RatingEntityType;
   status: RatingIntakeStatus;
   createdAt: string;
   submittedAt?: string;
-  data: RatingPFForm;
+  data: RatingFormData;
 };
 
 export type RatingLinkRecord = {
@@ -123,6 +170,7 @@ export type RatingLinkRecord = {
   clientName: string;
   service: string;
   seller: string;
+  type?: RatingEntityType;
   path: string;
   createdAt: string;
 };
@@ -134,7 +182,7 @@ export type RatingLinkPayload = {
   clientPhone?: string;
   service: string;
   seller: string;
-  type: "pf";
+  type: RatingEntityType;
 };
 
 export function createEmptyRatingPFForm(overrides: Partial<RatingPFForm> = {}): RatingPFForm {
@@ -191,6 +239,63 @@ export function createEmptyRatingPFForm(overrides: Partial<RatingPFForm> = {}): 
   };
 }
 
+export function createEmptyRatingPJForm(overrides: Partial<RatingPJForm> = {}): RatingPJForm {
+  return {
+    tradeName: "",
+    stateRegistration: "",
+    municipalRegistration: "",
+    cnae: "",
+    taxRegime: "",
+    website: "",
+    companyPhone: "",
+    contactEmail: "",
+    responsibleName: "",
+    responsibleRg: "",
+    responsibleCpf: "",
+    responsibleRole: "",
+    responsiblePhone: "",
+    responsibleEmail: "",
+    cep: "",
+    street: "",
+    number: "",
+    complement: "",
+    district: "",
+    city: "",
+    uf: "",
+    bankAccounts: [{ bank: "", agency: "", account: "", pixKey: "" }],
+    monthlyRevenue: "",
+    annualRevenue: "",
+    serasaChecked: false,
+    serasaScore: "",
+    logins: [{ name: "Serasa", login: "", password: "" }],
+    vehicles: [{ value: "", year: "", plate: "", uf: "" }],
+    machinery: "",
+    otherAssets: "",
+    documents: { custom: [] },
+    references: [{ name: "", phone: "", relationship: "" }],
+    notes: "",
+    ...overrides,
+  };
+}
+
+export function createEmptyRatingForm(type: RatingEntityType, overrides: Partial<RatingFormData> = {}) {
+  return type === "pj"
+    ? createEmptyRatingPJForm(overrides as Partial<RatingPJForm>)
+    : createEmptyRatingPFForm(overrides as Partial<RatingPFForm>);
+}
+
+export function inferRatingEntityType(document = ""): RatingEntityType {
+  return document.replace(/\D/g, "").length > 11 ? "pj" : "pf";
+}
+
+export function normalizeRatingEntityType(type?: string): RatingEntityType {
+  return type === "pj" ? "pj" : "pf";
+}
+
+export function getRatingEntityTypeLabel(type?: string) {
+  return normalizeRatingEntityType(type) === "pj" ? "Pessoa Jurídica" : "Pessoa Física";
+}
+
 export function isRatingService(service = "") {
   const normalized = service
     .normalize("NFD")
@@ -214,13 +319,22 @@ export function mergeRatingIntakes(existing: RatingIntake[], incoming: RatingInt
   const merged = new Map<string, RatingIntake>();
   for (const item of existing) {
     if (item.id || item.token) {
-      merged.set(item.id || item.token, { ...item, status: normalizeRatingStatus(item.status) });
+      merged.set(item.id || item.token, {
+        ...item,
+        status: normalizeRatingStatus(item.status),
+        type: normalizeRatingEntityType(item.type),
+      });
     }
   }
   for (const item of incoming) {
     if (!item?.id && !item?.token) continue;
     const key = item.id || item.token;
-    merged.set(key, { ...merged.get(key), ...item, status: normalizeRatingStatus(item.status) });
+    merged.set(key, {
+      ...merged.get(key),
+      ...item,
+      status: normalizeRatingStatus(item.status),
+      type: normalizeRatingEntityType(item.type),
+    });
   }
   return Array.from(merged.values()).sort((a, b) =>
     String(b.submittedAt ?? b.createdAt).localeCompare(String(a.submittedAt ?? a.createdAt)),
