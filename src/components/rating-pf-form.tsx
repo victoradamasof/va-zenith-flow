@@ -402,7 +402,7 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <Card className="space-y-4 border-border/60 bg-card/60 p-5">
+    <Card className="space-y-4 border-border/70 bg-card p-4 shadow-sm sm:p-5">
       <div>
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           {title}

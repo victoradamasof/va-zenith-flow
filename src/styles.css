@@ -709,6 +709,25 @@
     animation: underline-grow 2s ease-out forwards;
     animation-delay: 2s;
   }
+  .public-rating-page,
+  .public-rating-page * {
+    scroll-behavior: auto;
+  }
+  .public-rating-page * {
+    animation: none !important;
+    transform: none !important;
+    transition-property: color, background-color, border-color, box-shadow, opacity !important;
+    transition-duration: 120ms !important;
+  }
+  .public-rating-page input,
+  .public-rating-page textarea,
+  .public-rating-page button,
+  .public-rating-page [role="combobox"] {
+    font-size: 16px;
+  }
+  .public-rating-page .shadow-glow {
+    box-shadow: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

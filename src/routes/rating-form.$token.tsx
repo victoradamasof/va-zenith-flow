@@ -174,9 +174,9 @@ function PublicRatingForm() {
   return (
     <RatingShell>
       <div className="mx-auto max-w-7xl space-y-6">
-        <Card className="border-primary/20 bg-card/80 p-5">
+        <Card className="border-primary/20 bg-card p-5 shadow-sm sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Ficha segura de Rating Pessoa Física
@@ -187,7 +187,7 @@ function PublicRatingForm() {
                 Bancário. Seus dados ficam vinculados ao seu atendimento.
               </p>
             </div>
-            <img src="/va-consultoria-logo-cropped.png" alt="VA Consultoria" className="h-16 w-44 object-contain" />
+            <img src="/va-consultoria-logo-cropped.png" alt="VA Consultoria" className="h-14 w-36 object-contain sm:h-16 sm:w-44" />
           </div>
         </Card>
 
@@ -202,7 +202,7 @@ function PublicRatingForm() {
 
         <RatingPFFormFields value={form} onChange={setForm} />
 
-        <Card className="sticky bottom-4 z-10 border-primary/25 bg-card/95 p-4 shadow-glow backdrop-blur">
+        <Card className="z-10 border-primary/25 bg-card p-4 shadow-sm sm:sticky sm:bottom-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
               {autosaveState === "saving"
@@ -231,9 +231,8 @@ function PublicRatingForm() {
 
 function RatingShell({ children }: { children: ReactNode }) {
   return (
-    <main className="min-h-screen overflow-x-hidden bg-background text-foreground">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_20%_10%,hsl(24_100%_57%/0.18),transparent_34%),radial-gradient(circle_at_80%_20%,hsl(24_100%_57%/0.08),transparent_30%)]" />
-      <div className="relative z-10 px-4 py-6 sm:px-8">{children}</div>
+    <main className="public-rating-page min-h-screen overflow-x-hidden bg-[linear-gradient(135deg,hsl(24_100%_96%),hsl(0_0%_100%)_42%,hsl(24_70%_97%))] text-foreground">
+      <div className="relative z-10 px-4 py-5 sm:px-8 sm:py-6">{children}</div>
     </main>
   );
 }
