@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckCircle2, FileText, ShieldCheck } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { RatingPFFormFields } from "@/components/rating-pf-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   createEmptyRatingPFForm,
+  normalizeRatingStatus,
   type RatingIntake,
   type RatingLinkPayload,
   type RatingPFForm,
@@ -24,6 +25,9 @@ function PublicRatingForm() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [autosaveState, setAutosaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const didHydrateRef = useRef(false);
+  const lastSavedPayloadRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -39,14 +43,17 @@ function PublicRatingForm() {
         if (cancelled) return;
         const nextPayload = data.payload ?? null;
         setPayload(nextPayload);
-        setForm(
+        const nextForm =
           data.intake?.data ??
-            createEmptyRatingPFForm({
-              email: nextPayload?.clientEmail ?? "",
-              mobilePhone: nextPayload?.clientPhone ?? "",
-            }),
-        );
-        setSubmitted(data.intake?.status === "preenchido");
+          createEmptyRatingPFForm({
+            email: nextPayload?.clientEmail ?? "",
+            mobilePhone: nextPayload?.clientPhone ?? "",
+          });
+        setForm(nextForm);
+        lastSavedPayloadRef.current = JSON.stringify(nextForm);
+        didHydrateRef.current = true;
+        const status = normalizeRatingStatus(data.intake?.status);
+        setSubmitted(status === "enviado" || status === "concluido");
       } catch {
         if (!cancelled) setPayload(null);
       } finally {
@@ -60,6 +67,31 @@ function PublicRatingForm() {
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    if (!payload || loading || submitted || !didHydrateRef.current) return;
+
+    const serialized = JSON.stringify(form);
+    if (serialized === lastSavedPayloadRef.current) return;
+
+    const timeout = window.setTimeout(async () => {
+      setAutosaveState("saving");
+      try {
+        const response = await fetch(`/api/rating-intakes/${encodeURIComponent(token)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ data: form, status: "pendente" }),
+        });
+        if (!response.ok) throw new Error(`Rating autosave failed: ${response.status}`);
+        lastSavedPayloadRef.current = serialized;
+        setAutosaveState("saved");
+      } catch {
+        setAutosaveState("error");
+      }
+    }, 900);
+
+    return () => window.clearTimeout(timeout);
+  }, [form, loading, payload, submitted, token]);
 
   const missingRequired = useMemo(
     () =>
@@ -99,9 +131,11 @@ function PublicRatingForm() {
       const response = await fetch(`/api/rating-intakes/${encodeURIComponent(token)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ data: form }),
+        body: JSON.stringify({ data: form, status: "enviado" }),
       });
       if (!response.ok) throw new Error(`Rating intake failed: ${response.status}`);
+      lastSavedPayloadRef.current = JSON.stringify(form);
+      setAutosaveState("saved");
       setSubmitted(true);
       toast.success("Ficha de rating enviada para a VA Consultoria.");
     } catch {
@@ -171,7 +205,13 @@ function PublicRatingForm() {
         <Card className="sticky bottom-4 z-10 border-primary/25 bg-card/95 p-4 shadow-glow backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Revise as informações antes de enviar. Campos com * são obrigatórios.
+              {autosaveState === "saving"
+                ? "Salvando rascunho automaticamente..."
+                : autosaveState === "saved"
+                  ? "Rascunho salvo automaticamente. Campos com * são obrigatórios."
+                  : autosaveState === "error"
+                    ? "Não foi possível salvar o rascunho agora. Você ainda pode enviar a ficha."
+                    : "Revise as informações antes de enviar. Campos com * são obrigatórios."}
             </p>
             <Button
               type="button"

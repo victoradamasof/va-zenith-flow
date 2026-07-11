@@ -1,4 +1,4 @@
-import { ChangeEvent, type ReactNode } from "react";
+import { ChangeEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { Plus, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,6 +30,16 @@ type RatingPFFormProps = {
   readOnly?: boolean;
 };
 
+type CepLookupState = "idle" | "loading" | "found" | "not-found";
+
+type ViaCepResponse = {
+  erro?: boolean;
+  logradouro?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
+};
+
 const maritalOptions = ["Solteiro(a)", "Casado(a)", "Divorciado(a)", "Viúvo(a)", "União estável"];
 const incomeOptions = [
   "Até R$ 2.000",
@@ -40,6 +50,58 @@ const incomeOptions = [
 ];
 
 export function RatingPFFormFields({ value, onChange, readOnly = false }: RatingPFFormProps) {
+  const latestValueRef = useRef(value);
+  const lastCepLookupRef = useRef("");
+  const [cepLookupState, setCepLookupState] = useState<CepLookupState>("idle");
+
+  useEffect(() => {
+    latestValueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    if (readOnly) return;
+
+    const cepDigits = value.cep.replace(/\D/g, "");
+    if (cepDigits.length !== 8) {
+      lastCepLookupRef.current = "";
+      setCepLookupState("idle");
+      return;
+    }
+
+    if (lastCepLookupRef.current === cepDigits) return;
+
+    const timeout = window.setTimeout(async () => {
+      lastCepLookupRef.current = cepDigits;
+      setCepLookupState("loading");
+
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${cepDigits}/json/`);
+        if (!response.ok) throw new Error("CEP lookup failed");
+
+        const data = (await response.json()) as ViaCepResponse;
+        if (data.erro) {
+          setCepLookupState("not-found");
+          return;
+        }
+
+        const current = latestValueRef.current;
+        onChange({
+          ...current,
+          cep: formatCep(cepDigits),
+          street: data.logradouro || current.street,
+          district: data.bairro || current.district,
+          city: data.localidade || current.city,
+          uf: data.uf || current.uf,
+        });
+        setCepLookupState("found");
+      } catch {
+        setCepLookupState("not-found");
+      }
+    }, 450);
+
+    return () => window.clearTimeout(timeout);
+  }, [onChange, readOnly, value.cep]);
+
   const update = <K extends keyof RatingPFForm>(field: K, nextValue: RatingPFForm[K]) => {
     onChange({ ...value, [field]: nextValue });
   };
@@ -146,7 +208,18 @@ export function RatingPFFormFields({ value, onChange, readOnly = false }: Rating
 
       <Section title="Endereço, dados bancários e documentos" subtitle="Endereço">
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="CEP *" value={value.cep} onChange={(v) => update("cep", formatCep(v))} placeholder="00000-000" readOnly={readOnly} />
+          <div className="space-y-2">
+            <Field label="CEP *" value={value.cep} onChange={(v) => update("cep", formatCep(v))} placeholder="00000-000" readOnly={readOnly} />
+            {cepLookupState === "loading" ? (
+              <p className="text-xs text-muted-foreground">Buscando endereço pelo CEP...</p>
+            ) : null}
+            {cepLookupState === "found" ? (
+              <p className="text-xs text-success">Endereço preenchido automaticamente.</p>
+            ) : null}
+            {cepLookupState === "not-found" ? (
+              <p className="text-xs text-warning">Não foi possível localizar este CEP. Preencha manualmente.</p>
+            ) : null}
+          </div>
           <Field label="UF *" value={value.uf} onChange={(v) => update("uf", v.toUpperCase().slice(0, 2))} placeholder="SP" readOnly={readOnly} />
           <Field label="Logradouro *" value={value.street} onChange={(v) => update("street", v)} placeholder="Rua / Av." readOnly={readOnly} className="md:col-span-2" />
           <Field label="Número *" value={value.number} onChange={(v) => update("number", v)} placeholder="Nº" readOnly={readOnly} />

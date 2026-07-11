@@ -1,6 +1,14 @@
 export const ratingIntakesKey = "va-manager:rating-intakes";
 export const ratingLinksKey = "va-manager:rating-links";
 
+export type RatingIntakeStatus = "pendente" | "enviado" | "concluido";
+
+export const ratingStatusOptions: { value: RatingIntakeStatus; label: string }[] = [
+  { value: "pendente", label: "Pendente" },
+  { value: "enviado", label: "Enviado" },
+  { value: "concluido", label: "Concluído" },
+];
+
 export type RatingFileInfo = {
   name: string;
   type: string;
@@ -103,7 +111,7 @@ export type RatingIntake = {
   service: string;
   seller: string;
   type: "pf";
-  status: "pendente" | "preenchido";
+  status: RatingIntakeStatus;
   createdAt: string;
   submittedAt?: string;
   data: RatingPFForm;
@@ -191,18 +199,30 @@ export function isRatingService(service = "") {
   return normalized.includes("rating");
 }
 
+export function normalizeRatingStatus(status?: string): RatingIntakeStatus {
+  if (status === "enviado" || status === "concluido" || status === "pendente") return status;
+  if (status === "preenchido") return "enviado";
+  return "pendente";
+}
+
+export function getRatingStatusLabel(status?: string) {
+  const normalized = normalizeRatingStatus(status);
+  return ratingStatusOptions.find((option) => option.value === normalized)?.label ?? "Pendente";
+}
+
 export function mergeRatingIntakes(existing: RatingIntake[], incoming: RatingIntake[]) {
   const merged = new Map<string, RatingIntake>();
   for (const item of existing) {
-    if (item.id || item.token) merged.set(item.id || item.token, item);
+    if (item.id || item.token) {
+      merged.set(item.id || item.token, { ...item, status: normalizeRatingStatus(item.status) });
+    }
   }
   for (const item of incoming) {
     if (!item?.id && !item?.token) continue;
     const key = item.id || item.token;
-    merged.set(key, { ...merged.get(key), ...item });
+    merged.set(key, { ...merged.get(key), ...item, status: normalizeRatingStatus(item.status) });
   }
   return Array.from(merged.values()).sort((a, b) =>
     String(b.submittedAt ?? b.createdAt).localeCompare(String(a.submittedAt ?? a.createdAt)),
   );
 }
-

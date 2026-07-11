@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { RatingPFFormFields } from "@/components/rating-pf-form";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -16,6 +15,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -32,11 +38,15 @@ import {
 } from "@/lib/mock-data";
 import {
   createEmptyRatingPFForm,
+  getRatingStatusLabel,
   isRatingService,
   mergeRatingIntakes,
+  normalizeRatingStatus,
   ratingIntakesKey,
   ratingLinksKey,
+  ratingStatusOptions,
   type RatingIntake,
+  type RatingIntakeStatus,
   type RatingLinkPayload,
   type RatingLinkRecord,
   type RatingPFForm,
@@ -125,8 +135,9 @@ function Rating() {
       });
   }, [clients, intakes, links, query, ratingSales]);
 
-  const completed = rows.filter((row) => row.intake?.status === "preenchido").length;
-  const pending = Math.max(rows.length - completed, 0);
+  const pending = rows.filter((row) => normalizeRatingStatus(row.intake?.status) === "pendente").length;
+  const sent = rows.filter((row) => normalizeRatingStatus(row.intake?.status) === "enviado").length;
+  const completed = rows.filter((row) => normalizeRatingStatus(row.intake?.status) === "concluido").length;
   const ratingRevenue = rows.reduce((sum, row) => sum + Number(row.sale.value ?? 0), 0);
 
   const openIntake = (saleId: string) => {
@@ -135,14 +146,17 @@ function Rating() {
 
     const intake =
       row.intake ??
-      createPendingIntake({
+      {
+        ...createPendingIntake({
         saleId: row.sale.id,
         clientName: row.sale.client,
         clientEmail: row.client?.email,
         clientPhone: row.client?.phone,
         service: row.sale.service,
         seller: row.sale.seller,
-      });
+        }),
+        token: row.link?.token ?? "",
+      };
 
     setSelectedIntake(intake);
     setSelectedForm(intake.data);
@@ -150,15 +164,53 @@ function Rating() {
 
   const saveInternalIntake = () => {
     if (!selectedIntake) return;
+    const status = normalizeRatingStatus(selectedIntake.status);
     const nextRecord: RatingIntake = {
       ...selectedIntake,
       data: selectedForm,
-      status: "preenchido",
-      submittedAt: selectedIntake.submittedAt ?? new Date().toISOString(),
+      status,
+      submittedAt: status === "pendente" ? selectedIntake.submittedAt : selectedIntake.submittedAt ?? new Date().toISOString(),
     };
     setIntakes((current) => mergeRatingIntakes(current, [nextRecord]));
     setSelectedIntake(nextRecord);
+    if (nextRecord.token) {
+      void saveIntakeToServer(nextRecord);
+    }
     toast.success("Ficha de rating atualizada.");
+  };
+
+  const updateRatingStatus = (saleId: string, nextStatus: RatingIntakeStatus) => {
+    const row = rows.find((item) => item.sale.id === saleId);
+    if (!row) return;
+
+    const baseRecord =
+      row.intake ??
+      {
+        ...createPendingIntake({
+          saleId: row.sale.id,
+          clientName: row.sale.client,
+          clientEmail: row.client?.email,
+          clientPhone: row.client?.phone,
+          service: row.sale.service,
+          seller: row.sale.seller,
+        }),
+        token: row.link?.token ?? "",
+      };
+
+    const nextRecord: RatingIntake = {
+      ...baseRecord,
+      status: nextStatus,
+      submittedAt: nextStatus === "pendente" ? baseRecord.submittedAt : baseRecord.submittedAt ?? new Date().toISOString(),
+    };
+
+    setIntakes((current) => mergeRatingIntakes(current, [nextRecord]));
+    if (selectedIntake?.saleId === saleId) {
+      setSelectedIntake(nextRecord);
+    }
+    if (nextRecord.token) {
+      void saveIntakeToServer(nextRecord);
+    }
+    toast.success(`Status alterado para ${getRatingStatusLabel(nextStatus)}.`);
   };
 
   const generateLink = async (saleId: string) => {
@@ -220,7 +272,7 @@ function Rating() {
         subtitle="Ficha de Rating Pessoa Física integrada às vendas e clientes"
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card className="border-border/60 bg-card/60 p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Vendas de rating
@@ -229,15 +281,21 @@ function Rating() {
         </Card>
         <Card className="border-border/60 bg-card/60 p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Fichas preenchidas
+            Pendentes
           </p>
-          <p className="mt-3 font-display text-3xl font-semibold">{completed}</p>
+          <p className="mt-3 font-display text-3xl font-semibold">{pending}</p>
         </Card>
         <Card className="border-border/60 bg-card/60 p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Receita em rating
+            Enviados
           </p>
-          <p className="mt-3 font-display text-3xl font-semibold">{formatBRL(ratingRevenue)}</p>
+          <p className="mt-3 font-display text-3xl font-semibold">{sent}</p>
+        </Card>
+        <Card className="border-border/60 bg-card/60 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Concluídos
+          </p>
+          <p className="mt-3 font-display text-3xl font-semibold">{completed}</p>
         </Card>
       </div>
 
@@ -246,7 +304,7 @@ function Rating() {
           <div>
             <h3 className="font-display text-base font-semibold">Clientes com Rating Bancário</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              {pending} pendentes · {completed} preenchidos
+              {pending} pendentes · {sent} enviados · {completed} concluídos · {formatBRL(ratingRevenue)}
             </p>
           </div>
           <Input
@@ -292,15 +350,21 @@ function Rating() {
                     <p className="text-xs text-muted-foreground">{formatBRL(Number(sale.value ?? 0))}</p>
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      className={
-                        intake?.status === "preenchido"
-                          ? "bg-success/15 text-success hover:bg-success/15"
-                          : "bg-warning/15 text-warning hover:bg-warning/15"
-                      }
+                    <Select
+                      value={normalizeRatingStatus(intake?.status)}
+                      onValueChange={(value) => updateRatingStatus(sale.id, value as RatingIntakeStatus)}
                     >
-                      {intake?.status === "preenchido" ? "Preenchido" : "Pendente"}
-                    </Badge>
+                      <SelectTrigger className="h-8 w-36">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ratingStatusOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </TableCell>
                   <TableCell className="max-w-64 truncate text-xs text-muted-foreground">
                     {link ? buildAbsoluteUrl(link.path) : "Não gerado"}
@@ -342,6 +406,37 @@ function Rating() {
               Dados enviados pelo cliente ou preenchidos internamente pela equipe comercial.
             </DialogDescription>
           </DialogHeader>
+          {selectedIntake ? (
+            <Card className="border-border/60 bg-muted/25 p-4">
+              <div className="grid gap-3 sm:grid-cols-[1fr_220px] sm:items-center">
+                <div>
+                  <p className="text-sm font-semibold">Status da ficha</p>
+                  <p className="text-xs text-muted-foreground">
+                    Use Pendente para rascunhos, Enviado quando o cliente terminar e Concluído após análise.
+                  </p>
+                </div>
+                <Select
+                  value={normalizeRatingStatus(selectedIntake.status)}
+                  onValueChange={(value) =>
+                    setSelectedIntake((current) =>
+                      current ? { ...current, status: value as RatingIntakeStatus } : current,
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ratingStatusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Card>
+          ) : null}
           <RatingPFFormFields value={selectedForm} onChange={setSelectedForm} />
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => setSelectedIntake(null)}>
@@ -390,4 +485,18 @@ async function copyLink(url: string) {
 function buildAbsoluteUrl(path: string) {
   if (path.startsWith("http")) return path;
   return `${window.location.origin}${path}`;
+}
+
+async function saveIntakeToServer(record: RatingIntake) {
+  if (!record.token) return;
+
+  try {
+    await fetch(`/api/rating-intakes/${encodeURIComponent(record.token)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: record.data, status: normalizeRatingStatus(record.status) }),
+    });
+  } catch (error) {
+    console.warn("Could not sync rating intake status", error);
+  }
 }

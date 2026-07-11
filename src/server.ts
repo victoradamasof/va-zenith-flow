@@ -242,6 +242,12 @@ function getRatingIntakeId(record: unknown) {
   return id || token;
 }
 
+function normalizeRatingIntakeStatus(status: unknown) {
+  if (status === "pendente" || status === "enviado" || status === "concluido") return status;
+  if (status === "preenchido") return "enviado";
+  return "pendente";
+}
+
 function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown) {
   const existingRecords = Array.isArray(existing) ? existing : [];
   const incomingRecords = Array.isArray(incoming) ? incoming : [];
@@ -249,7 +255,12 @@ function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown)
 
   for (const record of existingRecords) {
     const id = getRatingIntakeId(record);
-    if (id) merged.set(id, record);
+    if (id) {
+      merged.set(id, {
+        ...(record && typeof record === "object" ? record : {}),
+        status: normalizeRatingIntakeStatus((record as Record<string, unknown>)?.status),
+      });
+    }
   }
 
   for (const record of incomingRecords) {
@@ -259,6 +270,7 @@ function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown)
     merged.set(id, {
       ...(previous && typeof previous === "object" ? previous : {}),
       ...(record && typeof record === "object" ? record : {}),
+      status: normalizeRatingIntakeStatus((record as Record<string, unknown>)?.status),
     });
   }
 
@@ -1653,9 +1665,9 @@ async function handleRatingIntakesRequest(request: Request, env: unknown): Promi
       return jsonResponse({ error: "Missing rating token." }, { status: 400 });
     }
 
-    let body: { data?: unknown };
+    let body: { data?: unknown; status?: unknown };
     try {
-      body = (await request.json()) as { data?: unknown };
+      body = (await request.json()) as { data?: unknown; status?: unknown };
     } catch {
       return jsonResponse({ error: "Invalid JSON body." }, { status: 400 });
     }
@@ -1679,6 +1691,24 @@ async function handleRatingIntakesRequest(request: Request, env: unknown): Promi
     }
 
     const saleId = typeof linkPayload.saleId === "string" ? linkPayload.saleId : token;
+    const previousStored = await kv.get(`${ratingIntakePrefix}${token}`);
+    let previousRecord: Record<string, unknown> = {};
+    if (previousStored) {
+      try {
+        const parsed = JSON.parse(previousStored) as unknown;
+        previousRecord = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+      } catch {
+        previousRecord = {};
+      }
+    }
+
+    const requestedStatus = normalizeRatingIntakeStatus(body.status);
+    const now = new Date().toISOString();
+    const previousSubmittedAt =
+      typeof previousRecord.submittedAt === "string" ? previousRecord.submittedAt : undefined;
+    const submittedAt =
+      requestedStatus === "pendente" ? previousSubmittedAt : previousSubmittedAt ?? now;
+
     const record = {
       id: `rating-${saleId}`,
       token,
@@ -1689,10 +1719,14 @@ async function handleRatingIntakesRequest(request: Request, env: unknown): Promi
       service: typeof linkPayload.service === "string" ? linkPayload.service : "Rating Bancario",
       seller: typeof linkPayload.seller === "string" ? linkPayload.seller : "",
       type: "pf",
-      status: "preenchido",
+      status: requestedStatus,
       createdAt:
-        typeof linkPayload.createdAt === "string" ? linkPayload.createdAt : new Date().toISOString(),
-      submittedAt: new Date().toISOString(),
+        typeof previousRecord.createdAt === "string"
+          ? previousRecord.createdAt
+          : typeof linkPayload.createdAt === "string"
+            ? linkPayload.createdAt
+            : now,
+      ...(submittedAt ? { submittedAt } : {}),
       data: body.data,
     };
 
