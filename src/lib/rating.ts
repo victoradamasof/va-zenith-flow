@@ -11,11 +11,33 @@ export const ratingStatusOptions: { value: RatingIntakeStatus; label: string }[]
 ];
 
 export type RatingFileInfo = {
+  id?: string;
   name: string;
   type: string;
   size: number;
   updatedAt: string;
 };
+
+export const ratingFileMaxBytes = 15 * 1024 * 1024;
+
+export async function uploadRatingFile(token: string, file: File): Promise<RatingFileInfo> {
+  if (!token) throw new Error("O link da ficha ainda não foi gerado.");
+  if (file.size > ratingFileMaxBytes) throw new Error("O arquivo deve ter no máximo 15 MB.");
+
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(`/api/rating-files/${encodeURIComponent(token)}`, {
+    method: "POST",
+    body,
+  });
+  const result = (await response.json().catch(() => null)) as
+    | { file?: RatingFileInfo; error?: string }
+    | null;
+  if (!response.ok || !result?.file) {
+    throw new Error(result?.error || "Não foi possível enviar o arquivo.");
+  }
+  return result.file;
+}
 
 export type RatingBankAccount = {
   bank: string;

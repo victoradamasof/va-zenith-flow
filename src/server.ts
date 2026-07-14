@@ -8,8 +8,9 @@ type ServerEntry = {
 };
 
 type KvNamespace = {
-  get: (key: string) => Promise<string | null>;
-  put: (key: string, value: string, options?: { expirationTtl?: number }) => Promise<void>;
+  get(key: string): Promise<string | null>;
+  get(key: string, options: { type: "arrayBuffer" }): Promise<ArrayBuffer | null>;
+  put: (key: string, value: string | ArrayBuffer, options?: { expirationTtl?: number }) => Promise<void>;
 };
 
 type CloudEnv = {
@@ -26,6 +27,9 @@ const cloudDataKey = "va-manager:primary-state";
 const signingLinkPrefix = "va-manager:signing-link:";
 const ratingLinkPrefix = "va-manager:rating-link:";
 const ratingIntakePrefix = "va-manager:rating-intake:";
+const ratingFilePrefix = "va-manager:rating-file:";
+const ratingFileMetaPrefix = "va-manager:rating-file-meta:";
+const ratingFileMaxBytes = 15 * 1024 * 1024;
 const usersDataKey = "va-manager:users";
 const salesDataKey = "va-manager:sales";
 const signedContractsDataKey = "va-manager:signed-contracts";
@@ -74,6 +78,15 @@ type CreditAnalysisRequest = {
   operationType?: string;
   notes?: string;
   files?: CreditAnalysisFile[];
+};
+
+type RatingFileMetadata = {
+  id: string;
+  token: string;
+  name: string;
+  type: string;
+  size: number;
+  updatedAt: string;
 };
 
 async function getServerEntry(): Promise<ServerEntry> {
@@ -1565,6 +1578,117 @@ async function handleSigningLinkRequest(request: Request, env: unknown): Promise
   return jsonResponse({ error: "Method not allowed." }, { status: 405 });
 }
 
+async function handleRatingFilesRequest(request: Request, env: unknown): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/api/rating-files")) return null;
+
+  const kv = (env as CloudEnv).VA_MANAGER_DATA;
+  if (!kv) {
+    return jsonResponse({ error: "Cloud storage is not configured." }, { status: 503 });
+  }
+
+  const pathValue = decodeURIComponent(url.pathname.replace("/api/rating-files/", "")).trim();
+  if (!pathValue || pathValue === "/api/rating-files") {
+    return jsonResponse({ error: "Missing rating file identifier." }, { status: 400 });
+  }
+
+  if (request.method === "POST") {
+    const token = pathValue;
+    const contentLength = Number(request.headers.get("content-length") || 0);
+    if (contentLength > ratingFileMaxBytes + 1024 * 1024) {
+      return jsonResponse({ error: "O arquivo deve ter no máximo 15 MB." }, { status: 413 });
+    }
+
+    const linkStored = await kv.get(`${ratingLinkPrefix}${token}`);
+    if (!linkStored) return jsonResponse({ error: "Ficha de Rating não encontrada." }, { status: 404 });
+
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return jsonResponse({ error: "Não foi possível ler o arquivo enviado." }, { status: 400 });
+    }
+
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      return jsonResponse({ error: "Selecione um arquivo valido." }, { status: 400 });
+    }
+    if (file.size > ratingFileMaxBytes) {
+      return jsonResponse({ error: "O arquivo deve ter no máximo 15 MB." }, { status: 413 });
+    }
+
+    const extension = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+    const allowedExtensions = new Set([".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"]);
+    const normalizedType = file.type.toLowerCase();
+    const allowedMime =
+      normalizedType === "application/pdf" ||
+      normalizedType === "image/jpeg" ||
+      normalizedType === "image/png" ||
+      normalizedType === "image/webp" ||
+      normalizedType === "image/heic" ||
+      normalizedType === "image/heif" ||
+      normalizedType === "application/octet-stream" ||
+      normalizedType === "";
+    if (!allowedExtensions.has(extension) || !allowedMime) {
+      return jsonResponse({ error: "Envie somente PDF, JPG, PNG, WEBP ou HEIC." }, { status: 415 });
+    }
+
+    const id = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const metadata: RatingFileMetadata = {
+      id,
+      token,
+      name: file.name.replace(/[\r\n]/g, " ").slice(0, 180) || `documento${extension}`,
+      type: normalizedType || (extension === ".pdf" ? "application/pdf" : "application/octet-stream"),
+      size: file.size,
+      updatedAt: new Date().toISOString(),
+    };
+    const expirationTtl = 60 * 60 * 24 * 365;
+    await kv.put(`${ratingFilePrefix}${id}`, await file.arrayBuffer(), { expirationTtl });
+    await kv.put(`${ratingFileMetaPrefix}${id}`, JSON.stringify(metadata), { expirationTtl });
+
+    const { token: _privateToken, ...publicMetadata } = metadata;
+    return jsonResponse({ file: publicMetadata }, { status: 201 });
+  }
+
+  if (request.method === "GET") {
+    const id = pathValue;
+    const token = url.searchParams.get("token")?.trim() ?? "";
+    if (!token) return jsonResponse({ error: "Token da ficha ausente." }, { status: 401 });
+
+    const metadataStored = await kv.get(`${ratingFileMetaPrefix}${id}`);
+    if (!metadataStored) return jsonResponse({ error: "Arquivo não encontrado." }, { status: 404 });
+
+    let metadata: RatingFileMetadata;
+    try {
+      metadata = JSON.parse(metadataStored) as RatingFileMetadata;
+    } catch {
+      return jsonResponse({ error: "Metadados do arquivo invalidos." }, { status: 500 });
+    }
+    if (metadata.id !== id || metadata.token !== token) {
+      return jsonResponse({ error: "Acesso não autorizado ao arquivo." }, { status: 403 });
+    }
+
+    const content = await kv.get(`${ratingFilePrefix}${id}`, { type: "arrayBuffer" });
+    if (!content) return jsonResponse({ error: "Conteúdo do arquivo não encontrado." }, { status: 404 });
+
+    const disposition = url.searchParams.get("download") === "1" ? "attachment" : "inline";
+    const encodedName = encodeURIComponent(metadata.name).replace(/['()]/g, escape);
+    return new Response(content, {
+      headers: {
+        "content-type": metadata.type,
+        "content-length": String(metadata.size),
+        "content-disposition": `${disposition}; filename="documento"; filename*=UTF-8''${encodedName}`,
+        "cache-control": "private, no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
+
+  return jsonResponse({ error: "Method not allowed." }, { status: 405 });
+}
+
 async function handleRatingLinksRequest(request: Request, env: unknown): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/rating-links")) return null;
@@ -1786,6 +1910,9 @@ export default {
 
       const signingLinkResponse = await handleSigningLinkRequest(request, env);
       if (signingLinkResponse) return signingLinkResponse;
+
+      const ratingFilesResponse = await handleRatingFilesRequest(request, env);
+      if (ratingFilesResponse) return ratingFilesResponse;
 
       const ratingLinksResponse = await handleRatingLinksRequest(request, env);
       if (ratingLinksResponse) return ratingLinksResponse;

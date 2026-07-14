@@ -1,5 +1,7 @@
-import { ChangeEvent, useEffect, useRef, useState, type ReactNode } from "react";
-import { Plus, Trash2, Upload } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { RatingDocumentFile, RatingFileActions } from "@/components/rating-document-file";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,6 +22,7 @@ import {
   type RatingPJForm,
   type RatingReference,
   type RatingVehicle,
+  uploadRatingFile,
 } from "@/lib/rating";
 import { formatBrazilianPhone, formatCep, lookupCepAddress } from "@/lib/br-inputs";
 
@@ -27,6 +30,8 @@ type RatingPJFormProps = {
   value: RatingPJForm;
   onChange: (value: RatingPJForm) => void;
   readOnly?: boolean;
+  uploadToken?: string;
+  showFileActions?: boolean;
 };
 
 type CepLookupState = "idle" | "loading" | "found" | "not-found";
@@ -40,7 +45,13 @@ const taxRegimeOptions = [
   "Outro",
 ];
 
-export function RatingPJFormFields({ value, onChange, readOnly = false }: RatingPJFormProps) {
+export function RatingPJFormFields({
+  value,
+  onChange,
+  readOnly = false,
+  uploadToken,
+  showFileActions = false,
+}: RatingPJFormProps) {
   const latestValueRef = useRef(value);
   const lastCepLookupRef = useRef("");
   const [cepLookupState, setCepLookupState] = useState<CepLookupState>("idle");
@@ -115,14 +126,10 @@ export function RatingPJFormFields({ value, onChange, readOnly = false }: Rating
     onChange({ ...value, [field]: current.filter((_, itemIndex) => itemIndex !== index) });
   };
 
-  const setDocument = (field: keyof RatingPJForm["documents"], file?: File) => {
+  const setDocument = async (field: keyof RatingPJForm["documents"], file?: File) => {
     if (!file) return;
-    const info: RatingFileInfo = {
-      name: file.name,
-      type: file.type || "arquivo",
-      size: file.size,
-      updatedAt: new Date().toISOString(),
-    };
+    if (!uploadToken) throw new Error("Gere o link da ficha antes de enviar documentos.");
+    const info: RatingFileInfo = await uploadRatingFile(uploadToken, file);
 
     if (field === "custom") {
       onChange({
@@ -205,22 +212,38 @@ export function RatingPJFormFields({ value, onChange, readOnly = false }: Rating
 
         <Divider title="Documentos" />
         <div className="grid gap-3">
-          <FileField label="Cartão CNPJ" file={value.documents.cnpjCard} onChange={(file) => setDocument("cnpjCard", file)} readOnly={readOnly} />
-          <FileField label="Faturamento dos últimos 12 meses" file={value.documents.revenueLast12Months} onChange={(file) => setDocument("revenueLast12Months", file)} readOnly={readOnly} />
-          <FileField label="Contrato Social" file={value.documents.articlesOfAssociation} onChange={(file) => setDocument("articlesOfAssociation", file)} readOnly={readOnly} />
-          <FileField label="Declaração de Imposto de Renda (opcional)" file={value.documents.incomeTax} onChange={(file) => setDocument("incomeTax", file)} readOnly={readOnly} />
+          <RatingDocumentFile label="Cartão CNPJ" file={value.documents.cnpjCard} onUpload={(file) => setDocument("cnpjCard", file)} readOnly={readOnly} token={uploadToken} showFileActions={showFileActions} />
+          <RatingDocumentFile label="Faturamento dos últimos 12 meses" file={value.documents.revenueLast12Months} onUpload={(file) => setDocument("revenueLast12Months", file)} readOnly={readOnly} token={uploadToken} showFileActions={showFileActions} />
+          <RatingDocumentFile label="Contrato Social" file={value.documents.articlesOfAssociation} onUpload={(file) => setDocument("articlesOfAssociation", file)} readOnly={readOnly} token={uploadToken} showFileActions={showFileActions} />
+          <RatingDocumentFile label="Declaração de Imposto de Renda (opcional)" file={value.documents.incomeTax} onUpload={(file) => setDocument("incomeTax", file)} readOnly={readOnly} token={uploadToken} showFileActions={showFileActions} />
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="text-muted-foreground">Documentos personalizados</span>
             {!readOnly && (
               <label className="inline-flex cursor-pointer items-center gap-2 text-primary">
                 <Plus className="h-3.5 w-3.5" /> Adicionar
-                <input type="file" className="hidden" onChange={(event) => setDocument("custom", event.target.files?.[0])} />
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void setDocument("custom", file)
+                      .then(() => file && toast.success("Documento enviado com sucesso."))
+                      .catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível enviar o documento."));
+                  }}
+                />
               </label>
             )}
           </div>
           {value.documents.custom.length ? (
-            <div className="text-sm text-muted-foreground">
-              {value.documents.custom.map((file) => file.name).join(", ")}
+            <div className="grid gap-2 text-sm text-muted-foreground">
+              {value.documents.custom.map((file, index) => (
+                <div key={file.id ?? `${file.name}-${index}`} className="flex flex-wrap items-center gap-2">
+                  <span className="break-all">{file.name}</span>
+                  <RatingFileActions file={file} token={uploadToken} show={showFileActions} />
+                </div>
+              ))}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Nenhum documento personalizado adicionado.</p>
@@ -410,35 +433,6 @@ function SelectField({
           ))}
         </SelectContent>
       </Select>
-    </div>
-  );
-}
-
-function FileField({
-  label,
-  file,
-  onChange,
-  readOnly,
-}: {
-  label: string;
-  file?: RatingFileInfo;
-  onChange: (file?: File) => void;
-  readOnly?: boolean;
-}) {
-  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange(event.target.files?.[0]);
-  };
-
-  return (
-    <div className="flex flex-wrap items-center gap-3 text-sm">
-      <span className="min-w-56 font-medium">{label}</span>
-      {!readOnly && (
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium transition hover:border-primary/40 hover:text-primary">
-          <Upload className="h-3.5 w-3.5" /> Fazer upload
-          <input type="file" className="hidden" onChange={handleChange} />
-        </label>
-      )}
-      <span className="text-muted-foreground">{file?.name ?? "Nenhum arquivo"}</span>
     </div>
   );
 }

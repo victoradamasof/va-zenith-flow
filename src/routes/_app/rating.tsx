@@ -517,9 +517,19 @@ function Rating() {
             </Card>
           ) : null}
           {normalizeRatingEntityType(selectedIntake?.type) === "pj" ? (
-            <RatingPJFormFields value={selectedForm as RatingPJForm} onChange={(nextForm) => setSelectedForm(nextForm)} />
+            <RatingPJFormFields
+              value={selectedForm as RatingPJForm}
+              onChange={(nextForm) => setSelectedForm(nextForm)}
+              uploadToken={selectedIntake?.token}
+              showFileActions
+            />
           ) : (
-            <RatingPFFormFields value={selectedForm as RatingPFForm} onChange={(nextForm) => setSelectedForm(nextForm)} />
+            <RatingPFFormFields
+              value={selectedForm as RatingPFForm}
+              onChange={(nextForm) => setSelectedForm(nextForm)}
+              uploadToken={selectedIntake?.token}
+              showFileActions
+            />
           )}
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => setSelectedIntake(null)}>

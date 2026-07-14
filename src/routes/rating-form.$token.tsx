@@ -187,9 +187,17 @@ function PublicRatingForm() {
         )}
 
         {formType === "pj" ? (
-          <RatingPJFormFields value={form as RatingPJForm} onChange={(nextForm) => setForm(nextForm)} />
+          <RatingPJFormFields
+            value={form as RatingPJForm}
+            onChange={(nextForm) => setForm(nextForm)}
+            uploadToken={token}
+          />
         ) : (
-          <RatingPFFormFields value={form as RatingPFForm} onChange={(nextForm) => setForm(nextForm)} />
+          <RatingPFFormFields
+            value={form as RatingPFForm}
+            onChange={(nextForm) => setForm(nextForm)}
+            uploadToken={token}
+          />
         )}
 
         <Card className="z-10 border-primary/25 bg-card p-4 shadow-sm sm:sticky sm:bottom-4">
