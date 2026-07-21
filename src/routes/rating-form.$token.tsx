@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import {
   createEmptyRatingForm,
   createEmptyRatingPFForm,
+  getRatingFormSnapshot,
   getRatingEntityTypeLabel,
   normalizeRatingEntityType,
   normalizeRatingStatus,
@@ -50,12 +51,12 @@ function PublicRatingForm() {
         const data = (await response.json()) as { payload?: RatingLinkPayload; intake?: RatingIntake };
         if (cancelled) return;
         const nextPayload = data.payload ?? null;
-        const nextType = normalizeRatingEntityType(data.intake?.type ?? nextPayload?.type);
+        const nextType = normalizeRatingEntityType(nextPayload?.type ?? data.intake?.type);
         setPayload(nextPayload);
         setFormType(nextType);
-        const nextForm =
-          data.intake?.data ??
-          createInitialRatingForm(nextType, nextPayload);
+        const nextForm = data.intake
+          ? getRatingFormSnapshot(data.intake, nextType)
+          : createInitialRatingForm(nextType, nextPayload);
         setForm(nextForm);
         lastSavedPayloadRef.current = JSON.stringify(nextForm);
         didHydrateRef.current = true;

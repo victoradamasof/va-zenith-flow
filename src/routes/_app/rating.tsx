@@ -39,6 +39,7 @@ import {
 } from "@/lib/mock-data";
 import {
   createEmptyRatingForm,
+  getRatingFormSnapshot,
   getRatingEntityTypeLabel,
   getRatingStatusLabel,
   inferRatingEntityType,
@@ -49,6 +50,7 @@ import {
   ratingIntakesKey,
   ratingLinksKey,
   ratingStatusOptions,
+  saveRatingFormSnapshot,
   type RatingEntityType,
   type RatingFormData,
   type RatingIntake,
@@ -125,11 +127,9 @@ function Rating() {
         const client = clients.find(
           (item) => item.name.trim().toLowerCase() === sale.client.trim().toLowerCase(),
         );
-        const intake = intakes.find(
-          (item) =>
-            item.saleId === sale.id ||
-            item.clientName.trim().toLowerCase() === sale.client.trim().toLowerCase(),
-        );
+        // A ficha pertence a uma venda, não ao nome do cliente. O mesmo cliente
+        // pode contratar Rating PF e PJ em vendas diferentes.
+        const intake = intakes.find((item) => item.saleId === sale.id);
         const link = links.find((item) => item.saleId === sale.id);
         const ratingType = normalizeRatingEntityType(
           intake?.type ?? link?.type ?? inferRatingEntityType(client?.doc ?? ""),
@@ -171,18 +171,17 @@ function Rating() {
       };
 
     setSelectedIntake(intake);
-    setSelectedForm(intake.data ?? createEmptyRatingForm(normalizeRatingEntityType(intake.type)));
+    setSelectedForm(getRatingFormSnapshot(intake, normalizeRatingEntityType(intake.type)));
   };
 
   const saveInternalIntake = () => {
     if (!selectedIntake) return;
     const status = normalizeRatingStatus(selectedIntake.status);
-    const nextRecord: RatingIntake = {
+    const nextRecord = saveRatingFormSnapshot({
       ...selectedIntake,
-      data: selectedForm,
       status,
       submittedAt: status === "pendente" ? selectedIntake.submittedAt : selectedIntake.submittedAt ?? new Date().toISOString(),
-    };
+    }, normalizeRatingEntityType(selectedIntake.type), selectedForm);
     setIntakes((current) => mergeRatingIntakes(current, [nextRecord]));
     setSelectedIntake(nextRecord);
     if (nextRecord.token) {
@@ -226,7 +225,7 @@ function Rating() {
     toast.success(`Status alterado para ${getRatingStatusLabel(nextStatus)}.`);
   };
 
-  const updateRatingType = (saleId: string, nextType: RatingEntityType) => {
+  const updateRatingType = async (saleId: string, nextType: RatingEntityType) => {
     const row = rows.find((item) => item.sale.id === saleId);
     if (!row) return;
 
@@ -241,35 +240,44 @@ function Rating() {
           clientPhone: row.client?.phone,
           service: row.sale.service,
           seller: row.sale.seller,
-          type: nextType,
+          type: currentType,
         }),
         token: row.link?.token ?? "",
       };
 
-    const nextRecord: RatingIntake = {
-      ...baseRecord,
+    const recordWithCurrentSnapshot = saveRatingFormSnapshot(
+      baseRecord,
+      currentType,
+      baseRecord.data,
+    );
+    const nextData = getRatingFormSnapshot(recordWithCurrentSnapshot, nextType);
+    const nextRecord = saveRatingFormSnapshot({
+      ...recordWithCurrentSnapshot,
       type: nextType,
-      data:
-        currentType === nextType
-          ? baseRecord.data
-          : createPendingIntake({
-              saleId: row.sale.id,
-              clientName: row.sale.client,
-              clientEmail: row.client?.email,
-              clientPhone: row.client?.phone,
-              service: row.sale.service,
-              seller: row.sale.seller,
-              type: nextType,
-            }).data,
-    };
+    }, nextType, nextData);
 
     setIntakes((current) => mergeRatingIntakes(current, [nextRecord]));
     if (selectedIntake?.saleId === saleId) {
       setSelectedIntake(nextRecord);
       setSelectedForm(nextRecord.data);
     }
+    if (row.link) {
+      setLinks((current) =>
+        current.map((item) =>
+          item.saleId === saleId ? { ...item, type: nextType } : item,
+        ),
+      );
+    }
     if (nextRecord.token) {
-      void saveIntakeToServer(nextRecord);
+      try {
+        await updateRatingLinkType(nextRecord.token, nextType);
+        const saved = await saveIntakeToServer(nextRecord);
+        if (!saved) throw new Error("Rating intake sync failed");
+      } catch (error) {
+        console.warn("Could not sync rating type", error);
+        toast.error("O tipo foi alterado neste dispositivo, mas ainda não sincronizou com a nuvem.");
+        return;
+      }
     }
     toast.success(`Ficha alterada para ${getRatingEntityTypeLabel(nextType)}.`);
   };
@@ -409,7 +417,7 @@ function Rating() {
                   <TableCell>
                     <Select
                       value={ratingType}
-                      onValueChange={(value) => updateRatingType(sale.id, value as RatingEntityType)}
+                      onValueChange={(value) => void updateRatingType(sale.id, value as RatingEntityType)}
                     >
                       <SelectTrigger className="h-8 w-24">
                         <SelectValue />
@@ -595,15 +603,31 @@ function buildAbsoluteUrl(path: string) {
 }
 
 async function saveIntakeToServer(record: RatingIntake) {
-  if (!record.token) return;
+  if (!record.token) return false;
 
   try {
-    await fetch(`/api/rating-intakes/${encodeURIComponent(record.token)}`, {
+    const response = await fetch(`/api/rating-intakes/${encodeURIComponent(record.token)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ data: record.data, status: normalizeRatingStatus(record.status) }),
+      body: JSON.stringify({
+        data: record.data,
+        forms: record.forms,
+        status: normalizeRatingStatus(record.status),
+      }),
     });
+    if (!response.ok) throw new Error(`Rating intake sync failed: ${response.status}`);
+    return true;
   } catch (error) {
     console.warn("Could not sync rating intake status", error);
+    return false;
   }
+}
+
+async function updateRatingLinkType(token: string, type: RatingEntityType) {
+  const response = await fetch(`/api/rating-links/${encodeURIComponent(token)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type }),
+  });
+  if (!response.ok) throw new Error(`Rating link type sync failed: ${response.status}`);
 }

@@ -265,6 +265,40 @@ function normalizeRatingIntakeType(type: unknown) {
   return type === "pj" ? "pj" : "pf";
 }
 
+function mergeRatingIntakeRecord(previous: unknown, incoming: unknown) {
+  const previousRecord = previous && typeof previous === "object"
+    ? (previous as Record<string, unknown>)
+    : {};
+  const incomingRecord = incoming && typeof incoming === "object"
+    ? (incoming as Record<string, unknown>)
+    : {};
+  const type = normalizeRatingIntakeType(incomingRecord.type ?? previousRecord.type);
+  const previousForms = previousRecord.forms && typeof previousRecord.forms === "object"
+    ? (previousRecord.forms as Record<string, unknown>)
+    : {};
+  const incomingForms = incomingRecord.forms && typeof incomingRecord.forms === "object"
+    ? (incomingRecord.forms as Record<string, unknown>)
+    : {};
+  const forms = {
+    ...previousForms,
+    ...incomingForms,
+  };
+
+  // Registros de versoes antigas nao possuem `forms`. Nesse caso, mantemos
+  // qualquer ficha PF/PJ ja sincronizada para impedir perda entre dispositivos.
+  if (!(type in forms) && incomingRecord.data && typeof incomingRecord.data === "object") {
+    forms[type] = incomingRecord.data;
+  }
+
+  return {
+    ...previousRecord,
+    ...incomingRecord,
+    status: normalizeRatingIntakeStatus(incomingRecord.status ?? previousRecord.status),
+    type,
+    forms,
+  };
+}
+
 function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown) {
   const existingRecords = Array.isArray(existing) ? existing : [];
   const incomingRecords = Array.isArray(incoming) ? incoming : [];
@@ -273,11 +307,7 @@ function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown)
   for (const record of existingRecords) {
     const id = getRatingIntakeId(record);
     if (id) {
-      merged.set(id, {
-        ...(record && typeof record === "object" ? record : {}),
-        status: normalizeRatingIntakeStatus((record as Record<string, unknown>)?.status),
-        type: normalizeRatingIntakeType((record as Record<string, unknown>)?.type),
-      });
+      merged.set(id, mergeRatingIntakeRecord(undefined, record));
     }
   }
 
@@ -285,12 +315,7 @@ function mergeRatingIntakesPreservingCloud(existing: unknown, incoming: unknown)
     const id = getRatingIntakeId(record);
     if (!id) continue;
     const previous = merged.get(id);
-    merged.set(id, {
-      ...(previous && typeof previous === "object" ? previous : {}),
-      ...(record && typeof record === "object" ? record : {}),
-      status: normalizeRatingIntakeStatus((record as Record<string, unknown>)?.status),
-      type: normalizeRatingIntakeType((record as Record<string, unknown>)?.type),
-    });
+    merged.set(id, mergeRatingIntakeRecord(previous, record));
   }
 
   return Array.from(merged.values()).sort((a, b) => {
@@ -1730,6 +1755,46 @@ async function handleRatingLinksRequest(request: Request, env: unknown): Promise
     });
   }
 
+  if (request.method === "PATCH") {
+    const token = decodeURIComponent(url.pathname.replace("/api/rating-links/", "")).trim();
+    if (!token || token === "/api/rating-links") {
+      return jsonResponse({ error: "Missing rating token." }, { status: 400 });
+    }
+
+    let body: { type?: unknown };
+    try {
+      body = (await request.json()) as { type?: unknown };
+    } catch {
+      return jsonResponse({ error: "Invalid JSON body." }, { status: 400 });
+    }
+    if (body.type !== "pf" && body.type !== "pj") {
+      return jsonResponse({ error: "Invalid rating type." }, { status: 400 });
+    }
+
+    const stored = await kv.get(`${ratingLinkPrefix}${token}`);
+    if (!stored) return jsonResponse({ error: "Rating link not found." }, { status: 404 });
+
+    let parsed: { createdAt?: string; payload?: Record<string, unknown> };
+    try {
+      parsed = JSON.parse(stored) as { createdAt?: string; payload?: Record<string, unknown> };
+    } catch {
+      return jsonResponse({ error: "Invalid rating link payload." }, { status: 500 });
+    }
+
+    const updated = {
+      ...parsed,
+      payload: {
+        ...(parsed.payload ?? {}),
+        type: body.type,
+      },
+    };
+    await kv.put(`${ratingLinkPrefix}${token}`, JSON.stringify(updated), {
+      expirationTtl: 60 * 60 * 24 * 365,
+    });
+
+    return jsonResponse({ token, path: `/rating-form/${token}`, type: body.type });
+  }
+
   if (request.method === "POST") {
     let body: { payload?: unknown; slugBase?: string };
     try {
@@ -1795,9 +1860,9 @@ async function handleRatingIntakesRequest(request: Request, env: unknown): Promi
       return jsonResponse({ error: "Missing rating token." }, { status: 400 });
     }
 
-    let body: { data?: unknown; status?: unknown };
+    let body: { data?: unknown; forms?: unknown; status?: unknown };
     try {
-      body = (await request.json()) as { data?: unknown; status?: unknown };
+      body = (await request.json()) as { data?: unknown; forms?: unknown; status?: unknown };
     } catch {
       return jsonResponse({ error: "Invalid JSON body." }, { status: 400 });
     }
@@ -1839,6 +1904,19 @@ async function handleRatingIntakesRequest(request: Request, env: unknown): Promi
       typeof previousRecord.submittedAt === "string" ? previousRecord.submittedAt : undefined;
     const submittedAt =
       requestedStatus === "pendente" ? previousSubmittedAt : previousSubmittedAt ?? now;
+    const previousForms =
+      previousRecord.forms && typeof previousRecord.forms === "object"
+        ? (previousRecord.forms as Record<string, unknown>)
+        : {};
+    const incomingForms =
+      body.forms && typeof body.forms === "object"
+        ? (body.forms as Record<string, unknown>)
+        : {};
+    const forms = {
+      ...previousForms,
+      ...incomingForms,
+      [ratingType]: body.data,
+    };
 
     const record = {
       id: `rating-${saleId}`,
@@ -1859,6 +1937,7 @@ async function handleRatingIntakesRequest(request: Request, env: unknown): Promi
             : now,
       ...(submittedAt ? { submittedAt } : {}),
       data: body.data,
+      forms,
     };
 
     await kv.put(`${ratingIntakePrefix}${token}`, JSON.stringify(record), {

@@ -170,6 +170,11 @@ export type RatingPJForm = {
 
 export type RatingFormData = RatingPFForm | RatingPJForm;
 
+export type RatingFormsByType = {
+  pf?: RatingPFForm;
+  pj?: RatingPJForm;
+};
+
 export type RatingIntake = {
   id: string;
   token: string;
@@ -184,6 +189,7 @@ export type RatingIntake = {
   createdAt: string;
   submittedAt?: string;
   data: RatingFormData;
+  forms?: RatingFormsByType;
 };
 
 export type RatingLinkRecord = {
@@ -314,6 +320,44 @@ export function normalizeRatingEntityType(type?: string): RatingEntityType {
   return type === "pj" ? "pj" : "pf";
 }
 
+export function getRatingFormSnapshot(
+  intake: Pick<RatingIntake, "type" | "data" | "forms">,
+  type: RatingEntityType,
+): RatingFormData {
+  const stored = intake.forms?.[type];
+  if (stored) return stored;
+  if (normalizeRatingEntityType(intake.type) === type && intake.data) return intake.data;
+  return createEmptyRatingForm(type);
+}
+
+export function saveRatingFormSnapshot(
+  intake: RatingIntake,
+  type: RatingEntityType,
+  data: RatingFormData,
+): RatingIntake {
+  return {
+    ...intake,
+    data,
+    forms: {
+      ...intake.forms,
+      [type]: data,
+    },
+  };
+}
+
+export function normalizeRatingIntake(intake: RatingIntake): RatingIntake {
+  const type = normalizeRatingEntityType(intake.type);
+  return {
+    ...intake,
+    status: normalizeRatingStatus(intake.status),
+    type,
+    forms: {
+      ...intake.forms,
+      [type]: intake.forms?.[type] ?? intake.data,
+    },
+  };
+}
+
 export function getRatingEntityTypeLabel(type?: string) {
   return normalizeRatingEntityType(type) === "pj" ? "Pessoa Jurídica" : "Pessoa Física";
 }
@@ -341,22 +385,20 @@ export function mergeRatingIntakes(existing: RatingIntake[], incoming: RatingInt
   const merged = new Map<string, RatingIntake>();
   for (const item of existing) {
     if (item.id || item.token) {
-      merged.set(item.id || item.token, {
-        ...item,
-        status: normalizeRatingStatus(item.status),
-        type: normalizeRatingEntityType(item.type),
-      });
+      merged.set(item.id || item.token, normalizeRatingIntake(item));
     }
   }
   for (const item of incoming) {
     if (!item?.id && !item?.token) continue;
     const key = item.id || item.token;
-    merged.set(key, {
+    merged.set(key, normalizeRatingIntake({
       ...merged.get(key),
       ...item,
-      status: normalizeRatingStatus(item.status),
-      type: normalizeRatingEntityType(item.type),
-    });
+      forms: {
+        ...merged.get(key)?.forms,
+        ...item.forms,
+      },
+    }));
   }
   return Array.from(merged.values()).sort((a, b) =>
     String(b.submittedAt ?? b.createdAt).localeCompare(String(a.submittedAt ?? a.createdAt)),
