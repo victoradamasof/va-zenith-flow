@@ -37,6 +37,7 @@ import {
   ArrowUpCircle,
   Wallet,
   AlertCircle,
+  CreditCard,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -68,10 +69,7 @@ import {
   type CommissionAdjustment,
   type CommissionPayment,
 } from "@/lib/commissions";
-import {
-  calculatePendingServiceCosts,
-  calculateServiceCostEntries,
-} from "@/lib/service-costs";
+import { calculatePendingServiceCosts, calculateServiceCostEntries } from "@/lib/service-costs";
 import {
   calculateCurrentCash,
   calculateExpensePaidAmount,
@@ -139,11 +137,21 @@ type Expense = (typeof initialExpenses)[number] & {
   paidAt?: string;
   notes?: string;
   recurringSourceId?: string;
+  paymentMethod?: ExpensePaymentMethod;
+  purchaseDate?: string;
+  cardBillDueDate?: string;
 };
 type MonthlyExpenseRow = Expense & {
   displayId: string;
   sourceId: string;
   isProjectedRecurring?: boolean;
+};
+type CreditCardBill = {
+  dueDate: string;
+  expenses: MonthlyExpenseRow[];
+  total: number;
+  paid: number;
+  remaining: number;
 };
 type Collaborator = (typeof initialSellers)[number] & { role?: string; photoUrl?: string };
 type PaymentHistoryEntry = {
@@ -167,10 +175,18 @@ const emptyExpenseForm = {
   status: "pendente",
   recurring: "true",
   notes: "",
+  paymentMethod: "direct" as ExpensePaymentMethod,
 };
+
+type ExpensePaymentMethod = "direct" | "credit_card";
 
 const expenseStatusOptions = ["pendente", "pago", "atrasado", "parcial"];
 const recurringOptions = ["true", "false"];
+const expensePaymentMethodOptions: ExpensePaymentMethod[] = ["direct", "credit_card"];
+const expensePaymentMethodLabels: Record<ExpensePaymentMethod, string> = {
+  direct: "Pagamento direto",
+  credit_card: "Cartão de crédito",
+};
 const recurringLabels: Record<string, string> = {
   true: "Recorrente",
   false: "Avulsa",
@@ -212,6 +228,27 @@ function dateInSelectedMonth(originalDate: string, monthKey: string) {
   return toLocalISODate(new Date(year, month - 1, day, 12));
 }
 
+function isCreditCardExpense(expense: Pick<Expense, "paymentMethod">) {
+  return expense.paymentMethod === "credit_card";
+}
+
+function getCreditCardBillDueDate(purchaseDate: string) {
+  const safePurchaseDate = /^\d{4}-\d{2}-\d{2}$/.test(purchaseDate)
+    ? purchaseDate
+    : todayLocalISODate();
+  const purchase = parseLocalDate(safePurchaseDate);
+  return toLocalISODate(new Date(purchase.getFullYear(), purchase.getMonth() + 1, 1, 12));
+}
+
+function getProjectedCardPurchaseDate(sourcePurchaseDate: string, billMonth: string) {
+  const purchaseMonth = shiftMonthKey(billMonth, -1);
+  return dateInSelectedMonth(sourcePurchaseDate, purchaseMonth);
+}
+
+function getExpensePaymentMethod(expense: Pick<Expense, "paymentMethod">): ExpensePaymentMethod {
+  return expense.paymentMethod === "credit_card" ? "credit_card" : "direct";
+}
+
 function buildMonthlyExpenseRows(expenses: Expense[], selectedMonth: string): MonthlyExpenseRow[] {
   const concreteRows = expenses
     .filter((expense) => getMonthKey(expense.date) === selectedMonth)
@@ -238,8 +275,15 @@ function buildMonthlyExpenseRows(expenses: Expense[], selectedMonth: string): Mo
       sourceId: expense.id,
       recurringSourceId: expense.id,
       date: dateInSelectedMonth(expense.date, selectedMonth),
+      purchaseDate: isCreditCardExpense(expense)
+        ? getProjectedCardPurchaseDate(expense.purchaseDate ?? expense.date, selectedMonth)
+        : expense.purchaseDate,
+      cardBillDueDate: isCreditCardExpense(expense)
+        ? dateInSelectedMonth(expense.cardBillDueDate ?? expense.date, selectedMonth)
+        : expense.cardBillDueDate,
       status: "pendente",
       paidAmount: undefined,
+      paidAt: undefined,
       isProjectedRecurring: true,
     }));
 
@@ -247,6 +291,33 @@ function buildMonthlyExpenseRows(expenses: Expense[], selectedMonth: string): Mo
     const dateDiff = a.date.localeCompare(b.date);
     return dateDiff || a.desc.localeCompare(b.desc, "pt-BR");
   });
+}
+
+function buildCreditCardBills(expenses: MonthlyExpenseRow[]): CreditCardBill[] {
+  const grouped = new Map<string, MonthlyExpenseRow[]>();
+
+  expenses.filter(isCreditCardExpense).forEach((expense) => {
+    const dueDate = expense.cardBillDueDate ?? expense.date;
+    grouped.set(dueDate, [...(grouped.get(dueDate) ?? []), expense]);
+  });
+
+  return Array.from(grouped.entries())
+    .map(([dueDate, billExpenses]) => {
+      const total = billExpenses.reduce((sum, expense) => sum + expense.value, 0);
+      const paid = billExpenses.reduce(
+        (sum, expense) => sum + calculateExpensePaidAmount(expense),
+        0,
+      );
+
+      return {
+        dueDate,
+        expenses: billExpenses,
+        total,
+        paid,
+        remaining: Math.max(total - paid, 0),
+      };
+    })
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
 
 function getPaymentHistoryStatus(paid: number, total: number, fallback = "Pago") {
@@ -332,6 +403,7 @@ function Financial() {
     expenseCategories,
   );
   const [query, setQuery] = useState("");
+  const [activeFinancialTab, setActiveFinancialTab] = useState("despesas");
   const [open, setOpen] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [editingRecurringSourceId, setEditingRecurringSourceId] = useState<string | null>(null);
@@ -353,6 +425,25 @@ function Financial() {
   const monthlyExpenses = useMemo(
     () => buildMonthlyExpenseRows(expenses, selectedExpenseMonth),
     [expenses, selectedExpenseMonth],
+  );
+  const selectedMonthCreditCardBills = useMemo(
+    () => buildCreditCardBills(monthlyExpenses),
+    [monthlyExpenses],
+  );
+  const persistedCreditCardBills = useMemo(() => {
+    const rows = expenses.map((expense) => ({
+      ...expense,
+      displayId: expense.id,
+      sourceId: expense.recurringSourceId ?? expense.id,
+    }));
+    return buildCreditCardBills(rows);
+  }, [expenses]);
+  const nextOpenCreditCardBill = useMemo(
+    () =>
+      persistedCreditCardBills.find(
+        (bill) => bill.remaining > 0 && bill.dueDate >= todayLocalISODate(),
+      ) ?? persistedCreditCardBills.find((bill) => bill.remaining > 0),
+    [persistedCreditCardBills],
   );
 
   const filteredExpenses = useMemo(() => {
@@ -506,9 +597,7 @@ function Financial() {
   );
   const aPagar =
     expenses
-      .filter((expense) =>
-        ["pendente", "atrasado", "parcial"].includes(expense.status),
-      )
+      .filter((expense) => ["pendente", "atrasado", "parcial"].includes(expense.status))
       .reduce((sum, expense) => sum + calculateExpenseRemainingAmount(expense), 0) +
     scheduledBankOutflows +
     payableCommissions +
@@ -713,14 +802,7 @@ function Financial() {
     if (!normalizedQuery) return monthHistory;
 
     return monthHistory.filter((entry) =>
-      [
-        entry.date,
-        entry.type,
-        entry.description,
-        entry.category,
-        entry.status,
-        entry.notes ?? "",
-      ]
+      [entry.date, entry.type, entry.description, entry.category, entry.status, entry.notes ?? ""]
         .join(" ")
         .toLocaleLowerCase("pt-BR")
         .includes(normalizedQuery),
@@ -743,7 +825,8 @@ function Financial() {
 
   const hasCategory = (category: string) =>
     categories.some(
-      (item) => item.trim().toLocaleLowerCase("pt-BR") === category.trim().toLocaleLowerCase("pt-BR"),
+      (item) =>
+        item.trim().toLocaleLowerCase("pt-BR") === category.trim().toLocaleLowerCase("pt-BR"),
     );
 
   const saveCategoryIfMissing = (category: string) => {
@@ -751,8 +834,7 @@ function Financial() {
     setCategories((current) => {
       const alreadyExists = current.some(
         (item) =>
-          item.trim().toLocaleLowerCase("pt-BR") ===
-          normalizedCategory.toLocaleLowerCase("pt-BR"),
+          item.trim().toLocaleLowerCase("pt-BR") === normalizedCategory.toLocaleLowerCase("pt-BR"),
       );
 
       return alreadyExists ? current : [...current, normalizedCategory];
@@ -785,9 +867,11 @@ function Financial() {
 
   const openEditExpense = (expense: MonthlyExpenseRow) => {
     setEditingExpenseId(expense.isProjectedRecurring ? null : expense.id);
-    setEditingRecurringSourceId(expense.isProjectedRecurring ? expense.sourceId : expense.recurringSourceId ?? null);
+    setEditingRecurringSourceId(
+      expense.isProjectedRecurring ? expense.sourceId : (expense.recurringSourceId ?? null),
+    );
     setForm({
-      date: expense.date,
+      date: isCreditCardExpense(expense) ? (expense.purchaseDate ?? expense.date) : expense.date,
       desc: expense.desc,
       category: expense.category,
       value: formatCurrencyInput(expense.value),
@@ -795,6 +879,7 @@ function Financial() {
       status: expense.status,
       recurring: String(expense.isProjectedRecurring ? false : expense.recurring),
       notes: expense.notes ?? "",
+      paymentMethod: getExpensePaymentMethod(expense),
     });
     setOpen(true);
   };
@@ -812,28 +897,46 @@ function Financial() {
     if (!desc) return;
     const category = saveCategoryIfMissing(form.category);
     const value = parseCurrencyInput(form.value);
+    const existingExpense = editingExpenseId
+      ? expenses.find((item) => item.id === editingExpenseId)
+      : undefined;
+    const isCardPayment = form.paymentMethod === "credit_card";
     const typedPaidAmount = parseCurrencyInput(form.paidAmount);
-    const paidAmount = form.status === "pago" ? value : Math.min(Math.max(typedPaidAmount, 0), value);
+    const cardPaymentWasSettled = Boolean(
+      isCardPayment && existingExpense && calculateExpenseRemainingAmount(existingExpense) === 0,
+    );
+    const paidAmount = isCardPayment
+      ? cardPaymentWasSettled
+        ? value
+        : 0
+      : form.status === "pago"
+        ? value
+        : Math.min(Math.max(typedPaidAmount, 0), value);
     const status =
-      value > 0 && paidAmount >= value
-        ? "pago"
-        : paidAmount > 0
-          ? "parcial"
-          : form.status === "parcial"
-            ? "pendente"
-            : form.status;
+      isCardPayment && !cardPaymentWasSettled
+        ? "pendente"
+        : value > 0 && paidAmount >= value
+          ? "pago"
+          : paidAmount > 0
+            ? "parcial"
+            : form.status === "parcial"
+              ? "pendente"
+              : form.status;
     const expense: Expense = {
       id: editingExpenseId ?? `e-${Date.now()}`,
-      date: form.date,
+      date: isCardPayment ? getCreditCardBillDueDate(form.date) : form.date,
       desc,
       category,
       value,
       paidAmount: paidAmount > 0 ? paidAmount : undefined,
-      paidAt: paidAmount > 0 ? expenses.find((item) => item.id === editingExpenseId)?.paidAt ?? todayLocalISODate() : undefined,
+      paidAt: paidAmount > 0 ? (existingExpense?.paidAt ?? todayLocalISODate()) : undefined,
       status,
       recurring: editingRecurringSourceId ? false : form.recurring === "true",
       recurringSourceId: editingRecurringSourceId ?? undefined,
       notes: form.notes.trim() || undefined,
+      paymentMethod: form.paymentMethod,
+      purchaseDate: isCardPayment ? form.date : undefined,
+      cardBillDueDate: isCardPayment ? getCreditCardBillDueDate(form.date) : undefined,
     };
 
     setExpenses((current) =>
@@ -841,6 +944,10 @@ function Financial() {
         ? current.map((item) => (item.id === editingExpenseId ? expense : item))
         : [expense, ...current],
     );
+
+    if (isCardPayment && expense.cardBillDueDate) {
+      setSelectedExpenseMonth(expense.cardBillDueDate.slice(0, 7));
+    }
 
     closeDialog();
     toast.success(editingExpenseId ? "Despesa atualizada." : "Despesa cadastrada.");
@@ -855,23 +962,34 @@ function Financial() {
       category: expense.category,
       value: expense.value,
       paidAmount,
-      paidAt: paidAmount > 0 ? todayLocalISODate() : undefined,
+      paidAt: (paidAmount ?? 0) > 0 ? todayLocalISODate() : undefined,
       status,
       recurring: false,
       recurringSourceId: expense.sourceId,
       notes: expense.notes,
+      paymentMethod: expense.paymentMethod,
+      purchaseDate: expense.purchaseDate,
+      cardBillDueDate: expense.cardBillDueDate,
     };
     setExpenses((current) => [nextExpense, ...current]);
   };
 
   const updateExpenseStatus = (expenseOrId: MonthlyExpenseRow | string, status: string) => {
+    if (typeof expenseOrId !== "string" && isCreditCardExpense(expenseOrId)) {
+      setActiveFinancialTab("cartao");
+      toast.info("Despesas no cartão são baixadas pela fatura para não duplicar a saída do caixa.");
+      return;
+    }
+
     if (typeof expenseOrId !== "string" && expenseOrId.isProjectedRecurring) {
       if (status === "pendente") {
         toast.info("Essa despesa recorrente já está pendente neste mês.");
         return;
       }
       materializeRecurringExpense(expenseOrId, status);
-      toast.success(`Despesa recorrente de ${formatMonthLabel(selectedExpenseMonth)} marcada como ${status}.`);
+      toast.success(
+        `Despesa recorrente de ${formatMonthLabel(selectedExpenseMonth)} marcada como ${status}.`,
+      );
       return;
     }
 
@@ -889,6 +1007,52 @@ function Financial() {
       }),
     );
     toast.success(`Despesa marcada como ${status}.`);
+  };
+
+  const updateCreditCardBillStatus = (bill: CreditCardBill, paid: boolean) => {
+    const paymentDate = todayLocalISODate();
+    const concreteIds = new Set(
+      bill.expenses.filter((expense) => !expense.isProjectedRecurring).map((expense) => expense.id),
+    );
+    const projectedExpenses = bill.expenses.filter((expense) => expense.isProjectedRecurring);
+
+    setExpenses((current) => {
+      const updated = current.map((expense) => {
+        if (!concreteIds.has(expense.id)) return expense;
+        return paid
+          ? { ...expense, status: "pago", paidAmount: expense.value, paidAt: paymentDate }
+          : { ...expense, status: "pendente", paidAmount: undefined, paidAt: undefined };
+      });
+
+      if (!paid || projectedExpenses.length === 0) return updated;
+
+      const materialized = projectedExpenses.map(
+        (expense, index): Expense => ({
+          id: `e-${Date.now()}-${index}-${expense.sourceId}`,
+          date: expense.date,
+          desc: expense.desc,
+          category: expense.category,
+          value: expense.value,
+          status: "pago",
+          paidAmount: expense.value,
+          paidAt: paymentDate,
+          recurring: false,
+          recurringSourceId: expense.sourceId,
+          notes: expense.notes,
+          paymentMethod: "credit_card",
+          purchaseDate: expense.purchaseDate,
+          cardBillDueDate: expense.cardBillDueDate ?? expense.date,
+        }),
+      );
+
+      return [...materialized, ...updated];
+    });
+
+    toast.success(
+      paid
+        ? `Fatura de ${formatMonthLabel(getMonthKey(bill.dueDate))} paga e descontada do caixa.`
+        : `Fatura de ${formatMonthLabel(getMonthKey(bill.dueDate))} reaberta.`,
+    );
   };
 
   const removeExpense = (expense: MonthlyExpenseRow) => {
@@ -922,7 +1086,8 @@ function Financial() {
         ? {
             ...receivable,
             status,
-            receivedAt: status === "recebido" ? receivable.receivedAt ?? todayLocalISODate() : undefined,
+            receivedAt:
+              status === "recebido" ? (receivable.receivedAt ?? todayLocalISODate()) : undefined,
           }
         : receivable,
     );
@@ -988,7 +1153,19 @@ function Financial() {
 
   const exportCsv = () => {
     const rows = [
-      ["Tipo", "Data", "Descrição", "Categoria/Serviço", "Valor", "Já pago", "Status", "Observações"],
+      [
+        "Tipo",
+        "Data",
+        "Descrição",
+        "Categoria/Serviço",
+        "Valor",
+        "Já pago",
+        "Status",
+        "Observações",
+        "Forma de pagamento",
+        "Data da compra",
+        "Vencimento da fatura",
+      ],
       [
         "Caixa",
         todayLocalISODate(),
@@ -997,6 +1174,9 @@ function Financial() {
         String(currentCash),
         "",
         "atual",
+        "",
+        "",
+        "",
         "",
       ],
       ...expenses.map((expense) => [
@@ -1008,6 +1188,9 @@ function Financial() {
         String(calculateExpensePaidAmount(expense)),
         expense.status,
         expense.notes ?? "",
+        expensePaymentMethodLabels[getExpensePaymentMethod(expense)],
+        expense.purchaseDate ?? "",
+        expense.cardBillDueDate ?? "",
       ]),
       ...sales.map((sale) => [
         "Receita",
@@ -1017,6 +1200,9 @@ function Financial() {
         String(sale.value),
         "",
         sale.status,
+        "",
+        "",
+        "",
         "",
       ]),
       ...bankTransactions.map((transaction) => [
@@ -1028,6 +1214,9 @@ function Financial() {
         "",
         transaction.status,
         transaction.notes ?? "",
+        "",
+        "",
+        "",
       ]),
       ...paymentHistory.map((entry) => [
         `Histórico - ${entry.direction === "entrada" ? "entrada" : "saída"}`,
@@ -1038,6 +1227,9 @@ function Financial() {
         String(entry.amount),
         entry.status,
         entry.notes ?? "",
+        "",
+        "",
+        "",
       ]),
     ];
     const csv = rows
@@ -1106,10 +1298,17 @@ function Financial() {
                   </DialogHeader>
                   <div className="mt-5 grid gap-4 md:grid-cols-2">
                     <DatePickerField
-                      label="Data"
+                      label={form.paymentMethod === "credit_card" ? "Data da compra" : "Data"}
                       value={form.date}
                       onChange={(value) => updateForm("date", value)}
                       required
+                    />
+                    <OptionSelectField
+                      label="Forma de pagamento"
+                      value={form.paymentMethod}
+                      onChange={(value) => updateForm("paymentMethod", value)}
+                      options={expensePaymentMethodOptions}
+                      labels={expensePaymentMethodLabels}
                     />
                     <FinanceField
                       label="Descrição"
@@ -1161,26 +1360,44 @@ function Financial() {
                       }
                       placeholder="Ex: 5000 ou 5.000,50"
                     />
-                    <FinanceField
-                      label="Já foi pago"
-                      value={form.paidAmount}
-                      onChange={(value) => updateForm("paidAmount", value)}
-                      onBlur={() =>
-                        updateForm(
-                          "paidAmount",
-                          form.paidAmount
-                            ? formatCurrencyInput(parseCurrencyInput(form.paidAmount))
-                            : "",
-                        )
-                      }
-                      placeholder="Ex: 150,00"
-                    />
-                    <OptionSelectField
-                      label="Status"
-                      value={form.status}
-                      onChange={(value) => updateForm("status", value)}
-                      options={expenseStatusOptions}
-                    />
+                    {form.paymentMethod === "credit_card" ? (
+                      <div className="rounded-lg border border-info/25 bg-info/10 p-3 md:col-span-2">
+                        <div className="flex items-start gap-3">
+                          <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-info" />
+                          <div>
+                            <p className="text-sm font-medium">Compra incluída na fatura</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Vencimento em {formatLocalDateBR(getCreditCardBillDueDate(form.date))}
+                              . O caixa só será reduzido quando a fatura for marcada como paga na
+                              aba Cartão.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <FinanceField
+                          label="Já foi pago"
+                          value={form.paidAmount}
+                          onChange={(value) => updateForm("paidAmount", value)}
+                          onBlur={() =>
+                            updateForm(
+                              "paidAmount",
+                              form.paidAmount
+                                ? formatCurrencyInput(parseCurrencyInput(form.paidAmount))
+                                : "",
+                            )
+                          }
+                          placeholder="Ex: 150,00"
+                        />
+                        <OptionSelectField
+                          label="Status"
+                          value={form.status}
+                          onChange={(value) => updateForm("status", value)}
+                          options={expenseStatusOptions}
+                        />
+                      </>
+                    )}
                     <OptionSelectField
                       label="Recorrente"
                       value={form.recurring}
@@ -1213,7 +1430,7 @@ function Financial() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           label="Caixa atual"
           value={formatBRL(currentCash)}
@@ -1248,6 +1465,17 @@ function Financial() {
           icon={AlertCircle}
           accent="destructive"
           hint={`${expenses.filter((expense) => ["pendente", "atrasado", "parcial"].includes(expense.status)).length + bankTransactions.filter((item) => item.status === "agendado" && item.type === "saida").length} títulos`}
+        />
+        <KpiCard
+          label="Próxima fatura"
+          value={formatBRL(nextOpenCreditCardBill?.remaining ?? 0)}
+          icon={CreditCard}
+          accent="warning"
+          hint={
+            nextOpenCreditCardBill
+              ? `vence ${formatLocalDateBR(nextOpenCreditCardBill.dueDate)}`
+              : "nenhuma fatura aberta"
+          }
         />
       </div>
 
@@ -1301,10 +1529,11 @@ function Financial() {
       </div>
 
       <Card className="border-border/60 bg-card/60 p-5">
-        <Tabs defaultValue="despesas">
+        <Tabs value={activeFinancialTab} onValueChange={setActiveFinancialTab}>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <TabsList>
               <TabsTrigger value="despesas">Despesas</TabsTrigger>
+              <TabsTrigger value="cartao">Cartão</TabsTrigger>
               <TabsTrigger value="receitas">Receitas</TabsTrigger>
               <TabsTrigger value="previsivel">Receita previsível</TabsTrigger>
               <TabsTrigger value="comissoes">Comissões</TabsTrigger>
@@ -1390,6 +1619,7 @@ function Financial() {
                     <TableHead>Categoria</TableHead>
                     <TableHead>Vencimento</TableHead>
                     <TableHead>Pagamento</TableHead>
+                    <TableHead>Forma</TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                     <TableHead>Status</TableHead>
@@ -1402,94 +1632,123 @@ function Financial() {
                     const remainingAmount = calculateExpenseRemainingAmount(expense);
 
                     return (
-                    <TableRow key={expense.displayId} className="hover:bg-muted/30">
-                      <TableCell className="font-medium">
-                        <div>{expense.desc}</div>
-                        {expense.isProjectedRecurring && (
-                          <div className="mt-1 text-xs font-normal text-info">
-                            Recorrência projetada para este mês
-                          </div>
-                        )}
-                        {expense.notes && (
-                          <div className="mt-1 max-w-sm text-xs font-normal text-muted-foreground">
-                            {expense.notes}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="border-border/60">
-                          {expense.category}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatLocalDateBR(expense.date)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {paidAmount > 0 ? formatLocalDateBR(expense.paidAt ?? expense.date) : "-"}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {expense.recurring || expense.recurringSourceId ? "Recorrente" : "Avulsa"}
-                      </TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">
-                        <div>{formatBRL(expense.value)}</div>
-                        {paidAmount > 0 && expense.status !== "pago" && (
-                          <div className="mt-1 text-[11px] font-normal text-success">
-                            Pago {formatBRL(paidAmount)}
-                          </div>
-                        )}
-                        {paidAmount > 0 && remainingAmount > 0 && (
-                          <div className="text-[11px] font-normal text-warning">
-                            Falta {formatBRL(remainingAmount)}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className={`${statusBadge(expense.status)} hover:${statusBadge(expense.status)}`}
-                        >
-                          {statusLabel(expense.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditExpense(expense)}
+                      <TableRow key={expense.displayId} className="hover:bg-muted/30">
+                        <TableCell className="font-medium">
+                          <div>{expense.desc}</div>
+                          {expense.isProjectedRecurring && (
+                            <div className="mt-1 text-xs font-normal text-info">
+                              Recorrência projetada para este mês
+                            </div>
+                          )}
+                          {expense.notes && (
+                            <div className="mt-1 max-w-sm text-xs font-normal text-muted-foreground">
+                              {expense.notes}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="border-border/60">
+                            {expense.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatLocalDateBR(expense.date)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {paidAmount > 0 ? formatLocalDateBR(expense.paidAt ?? expense.date) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              isCreditCardExpense(expense)
+                                ? "border-info/30 bg-info/10 text-info"
+                                : "border-border/60"
+                            }
                           >
-                            <Pencil className="mr-1 h-3.5 w-3.5" />
-                            Editar
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => updateExpenseStatus(expense, "pago")}
+                            {expensePaymentMethodLabels[getExpensePaymentMethod(expense)]}
+                          </Badge>
+                          {isCreditCardExpense(expense) && expense.purchaseDate && (
+                            <div className="mt-1 text-[11px] text-muted-foreground">
+                              Compra em {formatLocalDateBR(expense.purchaseDate)}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {expense.recurring || expense.recurringSourceId ? "Recorrente" : "Avulsa"}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          <div>{formatBRL(expense.value)}</div>
+                          {paidAmount > 0 && expense.status !== "pago" && (
+                            <div className="mt-1 text-[11px] font-normal text-success">
+                              Pago {formatBRL(paidAmount)}
+                            </div>
+                          )}
+                          {paidAmount > 0 && remainingAmount > 0 && (
+                            <div className="text-[11px] font-normal text-warning">
+                              Falta {formatBRL(remainingAmount)}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={`${statusBadge(expense.status)} hover:${statusBadge(expense.status)}`}
                           >
-                            Pago
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => updateExpenseStatus(expense, "pendente")}
-                          >
-                            Pendente
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeExpense(expense)}
-                          >
-                            Excluir
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                            {statusLabel(expense.status)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditExpense(expense)}
+                            >
+                              <Pencil className="mr-1 h-3.5 w-3.5" />
+                              Editar
+                            </Button>
+                            {isCreditCardExpense(expense) ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setActiveFinancialTab("cartao")}
+                              >
+                                Ver fatura
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => updateExpenseStatus(expense, "pago")}
+                                >
+                                  Pago
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => updateExpenseStatus(expense, "pendente")}
+                                >
+                                  Pendente
+                                </Button>
+                              </>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeExpense(expense)}
+                            >
+                              Excluir
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
                   {filteredExpenses.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={8}
+                        colSpan={9}
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Nenhuma despesa encontrada para a busca atual.
@@ -1499,6 +1758,158 @@ function Financial() {
                 </TableBody>
               </Table>
             </div>
+          </TabsContent>
+
+          <TabsContent value="cartao" className="mt-0 space-y-4">
+            <div className="rounded-xl border border-border/60 bg-background/45 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    <CreditCard className="h-4 w-4" />
+                    Faturas do cartão
+                  </div>
+                  <h3 className="mt-1 font-display text-xl font-semibold">
+                    {formatMonthLabel(selectedExpenseMonth)}
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Vencimento no dia 1. Compras só saem do caixa quando a fatura é paga.
+                  </p>
+                </div>
+                <MonthSelector
+                  month={selectedExpenseMonth}
+                  onMonthChange={setSelectedExpenseMonth}
+                />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border border-border/50 bg-card/45 p-3">
+                  <p className="text-xs text-muted-foreground">Total faturado</p>
+                  <p className="mt-1 font-semibold tabular-nums">
+                    {formatBRL(
+                      selectedMonthCreditCardBills.reduce((sum, bill) => sum + bill.total, 0),
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-success/20 bg-success/10 p-3">
+                  <p className="text-xs text-muted-foreground">Faturas pagas</p>
+                  <p className="mt-1 font-semibold text-success tabular-nums">
+                    {formatBRL(
+                      selectedMonthCreditCardBills.reduce((sum, bill) => sum + bill.paid, 0),
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-warning/20 bg-warning/10 p-3">
+                  <p className="text-xs text-muted-foreground">A pagar no cartão</p>
+                  <p className="mt-1 font-semibold text-warning tabular-nums">
+                    {formatBRL(
+                      selectedMonthCreditCardBills.reduce((sum, bill) => sum + bill.remaining, 0),
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {selectedMonthCreditCardBills.map((bill) => (
+              <div
+                key={bill.dueDate}
+                className="overflow-hidden rounded-xl border border-border/60"
+              >
+                <div className="flex flex-col gap-3 border-b border-border/60 bg-muted/25 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="font-display text-lg font-semibold">
+                        Fatura com vencimento em {formatLocalDateBR(bill.dueDate)}
+                      </h4>
+                      <Badge
+                        className={
+                          bill.remaining > 0 ? statusBadge("pendente") : statusBadge("pago")
+                        }
+                      >
+                        {bill.remaining > 0 ? "a pagar" : "paga"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {bill.expenses.length} {bill.expenses.length === 1 ? "compra" : "compras"} ·
+                      total {formatBRL(bill.total)}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant={bill.remaining > 0 ? "default" : "outline"}
+                    onClick={() => updateCreditCardBillStatus(bill, bill.remaining > 0)}
+                  >
+                    {bill.remaining > 0 ? "Pagar fatura" : "Reabrir fatura"}
+                  </Button>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/20 hover:bg-muted/20">
+                        <TableHead>Compra</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>Categoria</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bill.expenses.map((expense) => (
+                        <TableRow key={expense.displayId}>
+                          <TableCell className="text-muted-foreground">
+                            {formatLocalDateBR(expense.purchaseDate ?? expense.date)}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            <div>{expense.desc}</div>
+                            {expense.notes && (
+                              <div className="mt-1 max-w-sm text-xs font-normal text-muted-foreground">
+                                {expense.notes}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>{expense.category}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {expense.recurring || expense.recurringSourceId
+                              ? "Recorrente"
+                              : "Avulsa"}
+                          </TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {formatBRL(expense.value)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={statusBadge(expense.status)}>
+                              {expense.isProjectedRecurring
+                                ? "projetada"
+                                : statusLabel(expense.status)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditExpense(expense)}
+                            >
+                              <Pencil className="mr-1 h-3.5 w-3.5" />
+                              Editar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ))}
+
+            {selectedMonthCreditCardBills.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border/70 py-12 text-center">
+                <CreditCard className="mx-auto h-8 w-8 text-muted-foreground" />
+                <p className="mt-3 font-medium">Nenhuma fatura neste mês</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Cadastre uma despesa e selecione Cartão de crédito como forma de pagamento.
+                </p>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="receitas" className="mt-0">
@@ -2158,10 +2569,7 @@ function Financial() {
                   Pagamentos e recebimentos realizados no mês selecionado.
                 </p>
               </div>
-              <MonthSelector
-                month={selectedExpenseMonth}
-                onMonthChange={setSelectedExpenseMonth}
-              />
+              <MonthSelector month={selectedExpenseMonth} onMonthChange={setSelectedExpenseMonth} />
             </div>
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
               <Card className="border-border/60 bg-background/40 p-4">
