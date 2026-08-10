@@ -45,9 +45,10 @@ import {
   TrendingUp,
   Search,
   RotateCcw,
-  Wallet,
   ChevronLeft,
   ChevronRight,
+  BadgeDollarSign,
+  ReceiptText,
 } from "lucide-react";
 import {
   clients as initialClients,
@@ -70,7 +71,13 @@ import {
   type PaymentMethod,
 } from "@/lib/receivables";
 import { getAuthSession, type AuthSession } from "@/lib/auth";
-import { isLimpaNomeService } from "@/lib/commissions";
+import {
+  calculateCommissionEntries,
+  commissionAdjustmentsKey,
+  isLimpaNomeService,
+  type CommissionAdjustment,
+} from "@/lib/commissions";
+import { calculateServiceCostEntries } from "@/lib/service-costs";
 import { formatLocalDateBR, parseLocalDate, todayLocalISODate } from "@/lib/date-utils";
 import { isAdmin, isOwnedBySession } from "@/lib/permissions";
 
@@ -102,7 +109,10 @@ const paymentMethodOptions: Array<{ value: PaymentMethod; label: string }> = [
 function splitCommissionByEntry(totalCommission: number, saleTotal: number, entryAmount: number) {
   if (totalCommission <= 0) return { entry: 0, pending: 0 };
   if (saleTotal <= 0 || entryAmount <= 0) return { entry: totalCommission, pending: 0 };
-  const entry = Math.min(totalCommission, Math.round((totalCommission * entryAmount / saleTotal) * 100) / 100);
+  const entry = Math.min(
+    totalCommission,
+    Math.round(((totalCommission * entryAmount) / saleTotal) * 100) / 100,
+  );
   return {
     entry,
     pending: Math.max(Number((totalCommission - entry).toFixed(2)), 0),
@@ -228,6 +238,10 @@ function Sales() {
   const [clients] = usePersistentState<Client[]>("va-manager:clients", initialClients);
   const [services] = usePersistentState("va-manager:services", initialServices);
   const [collaborators] = usePersistentState<Collaborator[]>("va-manager:collaborators", sellers);
+  const [commissionAdjustments] = usePersistentState<CommissionAdjustment[]>(
+    commissionAdjustmentsKey,
+    [],
+  );
   const [receivables, setReceivables] = useSyncedReceivables({ sales });
   const [query, setQuery] = useState("");
   const [selectedSalesMonth, setSelectedSalesMonth] = useState(todayLocalISODate().slice(0, 7));
@@ -330,6 +344,43 @@ function Sales() {
     .reduce((sum, receivable) => sum + receivable.amount, 0);
   const averageTicket = selectedSales.length ? totalMes / selectedSales.length : 0;
   const conversionRate = Math.min(100, Math.round((paidRevenue / Math.max(totalMes, 1)) * 100));
+  const selectedServiceCosts = useMemo(
+    () =>
+      calculateServiceCostEntries({
+        sales: selectedSales,
+        services: serviceOptions,
+        receivables: receivablesBySale,
+      }),
+    [receivablesBySale, selectedSales, serviceOptions],
+  );
+  const selectedCommissionEntries = useMemo(
+    () =>
+      calculateCommissionEntries({
+        sales: selectedSales,
+        services: serviceOptions,
+        receivables: receivablesBySale,
+        adjustments: commissionAdjustments,
+      }),
+    [commissionAdjustments, receivablesBySale, selectedSales, serviceOptions],
+  );
+  const serviceCostsBySale = useMemo(() => {
+    const totals = new Map<string, number>();
+    selectedServiceCosts.forEach((entry) => {
+      totals.set(entry.saleId, (totals.get(entry.saleId) ?? 0) + entry.amount);
+    });
+    return totals;
+  }, [selectedServiceCosts]);
+  const commissionsBySale = useMemo(() => {
+    const totals = new Map<string, number>();
+    selectedCommissionEntries.forEach((entry) => {
+      totals.set(entry.saleId, (totals.get(entry.saleId) ?? 0) + entry.amount);
+    });
+    return totals;
+  }, [selectedCommissionEntries]);
+  const totalServiceCosts = selectedServiceCosts.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalCommissions = selectedCommissionEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const estimatedProfit = totalMes - totalServiceCosts - totalCommissions;
+  const estimatedMargin = totalMes > 0 ? (estimatedProfit / totalMes) * 100 : 0;
   const currentSellerName = useMemo(() => {
     if (canManageAllSales) return "";
     return (
@@ -397,15 +448,37 @@ function Sales() {
   ]);
 
   const serviceRanking = useMemo(() => {
-    const totals = new Map<string, { name: string; sales: number; revenue: number }>();
+    const totals = new Map<
+      string,
+      {
+        name: string;
+        sales: number;
+        revenue: number;
+        costs: number;
+        commissions: number;
+        profit: number;
+      }
+    >();
     for (const sale of selectedSales) {
-      const current = totals.get(sale.service) ?? { name: sale.service, sales: 0, revenue: 0 };
+      const current = totals.get(sale.service) ?? {
+        name: sale.service,
+        sales: 0,
+        revenue: 0,
+        costs: 0,
+        commissions: 0,
+        profit: 0,
+      };
+      const saleCosts = serviceCostsBySale.get(sale.id) ?? 0;
+      const saleCommissions = commissionsBySale.get(sale.id) ?? 0;
       current.sales += 1;
       current.revenue += sale.value;
+      current.costs += saleCosts;
+      current.commissions += saleCommissions;
+      current.profit += sale.value - saleCosts - saleCommissions;
       totals.set(sale.service, current);
     }
-    return [...totals.values()].sort((a, b) => b.sales - a.sales);
-  }, [selectedSales]);
+    return [...totals.values()].sort((a, b) => b.sales - a.sales || b.revenue - a.revenue);
+  }, [commissionsBySale, selectedSales, serviceCostsBySale]);
 
   const sellerRanking = useMemo(() => {
     const totals = new Map<
@@ -557,14 +630,13 @@ function Sales() {
       sale.commissionAmount ??
       sale.commissionEntryAmount ??
       (isLimpaNomeService(sale.service) ? 100 : serviceDefaultCommission);
-    const splitDefault =
-      isLimpaNomeService(sale.service)
-        ? { entry: sale.commissionEntryAmount ?? 50, pending: sale.commissionPendingAmount ?? 50 }
-        : splitCommissionByEntry(
-            serviceDefaultCommission,
-            sale.value,
-            sale.prazoPixEntryAmount ?? Math.min(397, sale.value),
-          );
+    const splitDefault = isLimpaNomeService(sale.service)
+      ? { entry: sale.commissionEntryAmount ?? 50, pending: sale.commissionPendingAmount ?? 50 }
+      : splitCommissionByEntry(
+          serviceDefaultCommission,
+          sale.value,
+          sale.prazoPixEntryAmount ?? Math.min(397, sale.value),
+        );
     setForm({
       id: sale.id,
       date: sale.date,
@@ -575,13 +647,17 @@ function Sales() {
       origin: sale.origin,
       paymentMethod: method,
       installments: String(sale.installments ?? 1),
-      prazoPixEntryAmount: formatCurrencyInput(sale.prazoPixEntryAmount ?? Math.min(397, sale.value)),
+      prazoPixEntryAmount: formatCurrencyInput(
+        sale.prazoPixEntryAmount ?? Math.min(397, sale.value),
+      ),
       prazoPixPendingAmount: formatCurrencyInput(
         sale.prazoPixPendingAmount ?? Math.max(sale.value - Math.min(397, sale.value), 0),
       ),
       prazoPixDueDays: String(sale.prazoPixDueDays ?? 30),
       commissionEntryAmount: formatCurrencyInput(sale.commissionEntryAmount ?? splitDefault.entry),
-      commissionPendingAmount: formatCurrencyInput(sale.commissionPendingAmount ?? splitDefault.pending),
+      commissionPendingAmount: formatCurrencyInput(
+        sale.commissionPendingAmount ?? splitDefault.pending,
+      ),
       commissionAmount: formatCurrencyInput(
         sale.commissionAmount ??
           (method === "avista"
@@ -611,11 +687,12 @@ function Sales() {
       const serviceDefaultCommission =
         serviceOptions.find((service) => service.name === current.service)?.commission ?? 0;
       const currentCommissionTotal =
-        parseCurrencyInput(current.commissionAmount) || commissionEntry + commissionPending || serviceDefaultCommission;
-      const split =
-        isLimpaNomeService(current.service)
-          ? { entry: commissionEntry || 50, pending: commissionPending || 50 }
-          : splitCommissionByEntry(currentCommissionTotal, parseCurrencyInput(nextValue), entry);
+        parseCurrencyInput(current.commissionAmount) ||
+        commissionEntry + commissionPending ||
+        serviceDefaultCommission;
+      const split = isLimpaNomeService(current.service)
+        ? { entry: commissionEntry || 50, pending: commissionPending || 50 }
+        : splitCommissionByEntry(currentCommissionTotal, parseCurrencyInput(nextValue), entry);
 
       return {
         ...current,
@@ -623,9 +700,7 @@ function Sales() {
         installments: nextMethod === "credito" ? current.installments : "1",
         value: nextValue,
         prazoPixEntryAmount:
-          nextMethod === "prazo_pix"
-            ? formatCurrencyInput(entry)
-            : current.prazoPixEntryAmount,
+          nextMethod === "prazo_pix" ? formatCurrencyInput(entry) : current.prazoPixEntryAmount,
         prazoPixPendingAmount:
           nextMethod === "prazo_pix"
             ? formatCurrencyInput(Math.max(parseCurrencyInput(nextValue) - entry, 0))
@@ -633,9 +708,13 @@ function Sales() {
         prazoPixDueDays:
           nextMethod === "prazo_pix" ? current.prazoPixDueDays || "30" : current.prazoPixDueDays,
         commissionEntryAmount:
-          nextMethod === "avista" ? current.commissionEntryAmount : formatCurrencyInput(split.entry),
+          nextMethod === "avista"
+            ? current.commissionEntryAmount
+            : formatCurrencyInput(split.entry),
         commissionPendingAmount:
-          nextMethod === "avista" ? current.commissionPendingAmount : formatCurrencyInput(split.pending),
+          nextMethod === "avista"
+            ? current.commissionPendingAmount
+            : formatCurrencyInput(split.pending),
         commissionAmount:
           nextMethod === "avista"
             ? formatCurrencyInput(currentCommissionTotal)
@@ -655,18 +734,17 @@ function Sales() {
       serviceCostAmount: formatCurrencyInput(Number(selectedService?.cost ?? 0)),
       ...(() => {
         const defaultCommission = Number(selectedService?.commission ?? 0);
-        const split =
-          isLimpaNome
-            ? { entry: 50, pending: 50 }
-            : current.paymentMethod === "prazo_pix"
-              ? splitCommissionByEntry(
-                  defaultCommission,
-                  parseCurrencyInput(nextValue),
-                  parseCurrencyInput(current.prazoPixEntryAmount),
-                )
-              : current.paymentMethod === "credito"
-                ? { entry: 0, pending: defaultCommission }
-                : { entry: defaultCommission, pending: 0 };
+        const split = isLimpaNome
+          ? { entry: 50, pending: 50 }
+          : current.paymentMethod === "prazo_pix"
+            ? splitCommissionByEntry(
+                defaultCommission,
+                parseCurrencyInput(nextValue),
+                parseCurrencyInput(current.prazoPixEntryAmount),
+              )
+            : current.paymentMethod === "credito"
+              ? { entry: 0, pending: defaultCommission }
+              : { entry: defaultCommission, pending: 0 };
 
         return {
           commissionEntryAmount: formatCurrencyInput(split.entry),
@@ -677,7 +755,10 @@ function Sales() {
       prazoPixPendingAmount:
         current.paymentMethod === "prazo_pix"
           ? formatCurrencyInput(
-              Math.max(parseCurrencyInput(nextValue) - parseCurrencyInput(current.prazoPixEntryAmount), 0),
+              Math.max(
+                parseCurrencyInput(nextValue) - parseCurrencyInput(current.prazoPixEntryAmount),
+                0,
+              ),
             )
           : current.prazoPixPendingAmount,
     }));
@@ -829,7 +910,18 @@ function Sales() {
   };
 
   const exportCsv = () => {
-    const header = ["Data", "Cliente", "Serviço", "Vendedor", "Origem", "Valor", "Status"];
+    const header = [
+      "Data",
+      "Cliente",
+      "Serviço",
+      "Vendedor",
+      "Origem",
+      "Valor",
+      "Custo",
+      "Comissão",
+      "Lucro estimado",
+      "Status",
+    ];
     const rows = selectedSales.map((sale) => [
       sale.date,
       sale.client,
@@ -837,6 +929,11 @@ function Sales() {
       sale.seller,
       sale.origin,
       String(sale.value),
+      String(serviceCostsBySale.get(sale.id) ?? 0),
+      String(commissionsBySale.get(sale.id) ?? 0),
+      String(
+        sale.value - (serviceCostsBySale.get(sale.id) ?? 0) - (commissionsBySale.get(sale.id) ?? 0),
+      ),
       sale.status,
     ]);
     const csv = [header, ...rows]
@@ -1074,7 +1171,32 @@ function Sales() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/40 p-3">
+        <div>
+          <p className="text-sm font-medium">Competência comercial</p>
+          <p className="text-xs text-muted-foreground">
+            Todos os indicadores abaixo seguem estes filtros.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <SalesMonthSelector month={selectedSalesMonth} onMonthChange={setSelectedSalesMonth} />
+          <Select value={selectedSeller} onValueChange={setSelectedSeller}>
+            <SelectTrigger className="h-9 w-52" aria-label="Selecionar vendedor">
+              <SelectValue placeholder="Todos os vendedores" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={allSellersFilter}>Todos os vendedores</SelectItem>
+              {sellerFilterOptions.map((seller) => (
+                <SelectItem key={seller} value={seller}>
+                  {seller}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           label="Vendas registradas"
           value={String(selectedSales.length)}
@@ -1090,25 +1212,31 @@ function Sales() {
           accent="success"
         />
         <KpiCard
-          label="Receita a receber"
-          value={formatBRL(predictableRevenue)}
-          icon={Wallet}
-          accent="info"
-          hint="parcelas futuras"
+          label="Custos das vendas"
+          value={formatBRL(totalServiceCosts)}
+          icon={ReceiptText}
+          accent="warning"
+          hint="custos operacionais"
         />
         <KpiCard
-          label="Ticket medio"
+          label="Comissões"
+          value={formatBRL(totalCommissions)}
+          icon={BadgeDollarSign}
+          accent="warning"
+          hint="liberadas e previstas"
+        />
+        <KpiCard
+          label="Lucro estimado"
+          value={formatBRL(estimatedProfit)}
+          icon={TrendingUp}
+          accent={estimatedProfit >= 0 ? "success" : "warning"}
+          hint={`${estimatedMargin.toFixed(1).replace(".", ",")}% de margem`}
+        />
+        <KpiCard
+          label="Ticket médio"
           value={formatBRL(averageTicket)}
-          delta={4}
           icon={Target}
           accent="info"
-        />
-        <KpiCard
-          label="Taxa de pagamento"
-          value={`${conversionRate}%`}
-          delta={6}
-          icon={TrendingUp}
-          accent="warning"
         />
       </div>
 
@@ -1126,37 +1254,48 @@ function Sales() {
         />
         <Card className="border-border/60 bg-card/60 p-5 lg:col-span-2">
           <div className="grid h-full gap-4 md:grid-cols-3">
-            <div className="rounded-xl border border-primary/20 bg-primary/10 p-4">
+            <div className="rounded-xl border border-warning/20 bg-warning/10 p-4">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Contratado
+                Custos dos serviços
               </p>
-              <p className="mt-3 font-display text-2xl font-semibold text-gradient-primary">
-                {formatBRL(totalMes)}
+              <p className="mt-3 font-display text-2xl font-semibold text-warning">
+                {formatBRL(totalServiceCosts)}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Soma das vendas da competência e vendedor selecionados.
-              </p>
-            </div>
-            <div className="rounded-xl border border-success/20 bg-success/10 p-4">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Recebido
-              </p>
-              <p className="mt-3 font-display text-2xl font-semibold text-success">
-                {formatBRL(paidRevenue)}
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Vendas pagas e entradas de parcelas.
+                Custos próprios de cada venda ou padrão cadastrado em Serviços.
               </p>
             </div>
             <div className="rounded-xl border border-info/20 bg-info/10 p-4">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Recebível
+                Comissões
               </p>
               <p className="mt-3 font-display text-2xl font-semibold text-info">
-                {formatBRL(predictableRevenue)}
+                {formatBRL(totalCommissions)}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Parcelas previstas para os próximos períodos.
+                Comissões atuais, futuras e ajustes registrados por venda.
+              </p>
+            </div>
+            <div
+              className={`rounded-xl border p-4 ${
+                estimatedProfit >= 0
+                  ? "border-success/20 bg-success/10"
+                  : "border-destructive/20 bg-destructive/10"
+              }`}
+            >
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Lucro estimado
+              </p>
+              <p
+                className={`mt-3 font-display text-2xl font-semibold ${
+                  estimatedProfit >= 0 ? "text-success" : "text-destructive"
+                }`}
+              >
+                {formatBRL(estimatedProfit)}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Receita menos custos e comissões, margem de{" "}
+                {estimatedMargin.toFixed(1).replace(".", ",")}%.
               </p>
             </div>
           </div>
@@ -1204,6 +1343,74 @@ function Sales() {
       </div>
 
       <Card className="border-border/60 bg-card/60 p-5">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="font-display text-base font-semibold">Desempenho por serviço</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Quantidade, receita, custos, comissões e lucro em{" "}
+              {formatMonthLabel(selectedSalesMonth)}.
+            </p>
+          </div>
+          <Badge variant="outline" className="border-border/60">
+            {serviceRanking.length}{" "}
+            {serviceRanking.length === 1 ? "serviço vendido" : "serviços vendidos"}
+          </Badge>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-border/60">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead>Serviço</TableHead>
+                <TableHead className="text-center">Quantidade</TableHead>
+                <TableHead className="text-right">Receita</TableHead>
+                <TableHead className="text-right">Custos</TableHead>
+                <TableHead className="text-right">Comissões</TableHead>
+                <TableHead className="text-right">Lucro estimado</TableHead>
+                <TableHead className="text-right">Margem</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {serviceRanking.map((service) => {
+                const margin = service.revenue > 0 ? (service.profit / service.revenue) * 100 : 0;
+                return (
+                  <TableRow key={service.name} className="hover:bg-muted/30">
+                    <TableCell className="font-medium">{service.name}</TableCell>
+                    <TableCell className="text-center tabular-nums">{service.sales}</TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {formatBRL(service.revenue)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-warning">
+                      {formatBRL(service.costs)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-info">
+                      {formatBRL(service.commissions)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right font-semibold tabular-nums ${
+                        service.profit >= 0 ? "text-success" : "text-destructive"
+                      }`}
+                    >
+                      {formatBRL(service.profit)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {margin.toFixed(1).replace(".", ",")}%
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {serviceRanking.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    Nenhuma venda encontrada para esta competência.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
+      <Card className="border-border/60 bg-card/60 p-5">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h3 className="font-display text-base font-semibold">Histórico recente</h3>
@@ -1212,20 +1419,6 @@ function Sales() {
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <SalesMonthSelector month={selectedSalesMonth} onMonthChange={setSelectedSalesMonth} />
-            <Select value={selectedSeller} onValueChange={setSelectedSeller}>
-              <SelectTrigger className="h-9 w-52" aria-label="Selecionar vendedor">
-                <SelectValue placeholder="Todos os vendedores" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={allSellersFilter}>Todos os vendedores</SelectItem>
-                {sellerFilterOptions.map((seller) => (
-                  <SelectItem key={seller} value={seller}>
-                    {seller}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
